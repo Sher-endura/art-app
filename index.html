@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ART · by Super Photo</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#0e1116">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="kop">
+    <div class="logo">
+      <span class="logo-art">ART</span>
+      <span class="logo-by">by Super Photo</span>
+    </div>
+    <nav class="tabs">
+      <button type="button" class="tab actief" data-pagina="pasfoto">Pasfoto</button>
+      <button type="button" class="tab" data-pagina="studio">Studiofoto</button>
+      <button type="button" class="tab" data-pagina="achtergronden">Achtergronden</button>
+    </nav>
+  </header>
+
+  <!-- ================= PASFOTO ================= -->
+  <main id="pagina-pasfoto" class="werkplek">
+    <aside class="paneel">
+      <section>
+        <h2>Document</h2>
+        <label>Land
+          <select id="land"></select>
+        </label>
+        <label>Soort
+          <select id="document"></select>
+        </label>
+        <p id="aanname" class="uitleg" hidden></p>
+      </section>
+
+      <section>
+        <h2>Foto</h2>
+        <div class="knoppen">
+          <label class="knop">Foto openen
+            <input id="bestand" type="file" accept="image/jpeg,image/png" hidden>
+          </label>
+          <button id="cameramap" class="knop" type="button">Cameramap koppelen</button>
+          <button id="heropen" class="knop" type="button" hidden></button>
+        </div>
+        <label class="werkplek-naam">Naam van deze werkplek
+          <input id="werkplek" type="text" maxlength="40" placeholder="bijv. Balie 1">
+        </label>
+        <p id="fotostatus" class="status">Open een foto, sleep er een in het kader, of koppel de cameramap.</p>
+        <h3 class="sub">Wachtrij camera</h3>
+        <ul id="wachtrij-pasfoto" class="wachtrij"></ul>
+      </section>
+
+      <section>
+        <h2>Uitlijnen</h2>
+        <button id="klikken" class="knop hoofdknop" type="button" disabled>Kruin en kin aanklikken</button>
+        <p id="klikuitleg" class="uitleg">Klik eerst op de kruin, daarna op de kin. ART zet het hoofd dan precies op de vaste maat.</p>
+        <div class="zoom">
+          <button id="kleiner" class="knop" type="button" title="Uitzoomen" disabled>−</button>
+          <button id="groter" class="knop" type="button" title="Inzoomen" disabled>+</button>
+          <label class="vink"><input id="matrixaan" type="checkbox" checked> Matrix tonen</label>
+        </div>
+        <p class="uitleg">Slepen = schuiven · scrollwiel = zoomen · pijltjestoetsen = 0,1 mm (met Shift 1 mm)</p>
+      </section>
+
+      <section>
+        <h2>Achtergrond</h2>
+        <div class="knoppen">
+          <button id="pas-vervang" class="knop" type="button" disabled>Achtergrond vervangen</button>
+          <button id="pas-origineel" class="knop" type="button" hidden>Originele achtergrond</button>
+        </div>
+        <p id="pas-achtergrondstatus" class="uitleg">Het gezicht blijft altijd precies zoals op de opname.</p>
+      </section>
+
+      <section>
+        <h2>Controle</h2>
+        <ul id="controle" class="controle">
+          <li class="leeg">Nog geen foto.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Afdrukvel</h2>
+        <div class="resolutie">
+          <label class="vink"><input type="radio" name="dpi" value="300"> 300 dpi</label>
+          <label class="vink"><input type="radio" name="dpi" value="600" checked> 600 dpi</label>
+        </div>
+        <p id="dpiuitleg" class="uitleg"></p>
+        <p id="velinfo" class="uitleg"></p>
+        <div class="knoppen">
+          <button id="opslaan" class="knop hoofdknop" type="button" disabled>Afdrukvel opslaan</button>
+          <button id="afdrukken" class="knop" type="button" disabled>Afdrukken</button>
+        </div>
+        <p id="blokkade" class="status fout" hidden></p>
+      </section>
+    </aside>
+
+    <div id="vak" class="vak">
+      <canvas id="canvas"></canvas>
+    </div>
+  </main>
+
+  <!-- ================= STUDIOFOTO ================= -->
+  <main id="pagina-studio" class="werkplek" hidden>
+    <aside class="paneel">
+      <section>
+        <h2>Foto</h2>
+        <div class="knoppen">
+          <label class="knop">Foto openen
+            <input id="studio-bestand" type="file" accept="image/jpeg,image/png" hidden>
+          </label>
+        </div>
+        <p id="studio-status" class="status">Open een foto, sleep er een in het vak, of pak er een op uit de wachtrij.</p>
+        <h3 class="sub">Wachtrij camera</h3>
+        <ul id="wachtrij-studio" class="wachtrij"></ul>
+      </section>
+
+      <section>
+        <h2>Achtergrond</h2>
+        <div class="knoppen">
+          <button id="studio-vervang" class="knop hoofdknop" type="button" disabled>Achtergrond vervangen</button>
+          <button id="studio-origineel" class="knop" type="button" hidden>Originele achtergrond</button>
+        </div>
+        <p id="studio-achtergrondstatus" class="uitleg">Het gezicht blijft altijd precies zoals op de opname.</p>
+      </section>
+
+      <section>
+        <h2>Slim bewerken</h2>
+        <button id="studio-slim" class="knop" type="button">✨ Slim bewerken</button>
+        <p class="uitleg">Past de gekozen achtergrond aan met AI. Het resultaat komt bij de achtergronden.</p>
+      </section>
+
+      <section>
+        <h2>Opslaan</h2>
+        <button id="studio-opslaan" class="knop hoofdknop" type="button" disabled>Studiofoto opslaan</button>
+        <p class="uitleg">Op volle grootte, zoals de camera hem maakte.</p>
+        <p id="studio-blokkade" class="status fout" hidden></p>
+      </section>
+    </aside>
+
+    <div id="studio-vak" class="vak">
+      <canvas id="studio-canvas"></canvas>
+    </div>
+  </main>
+
+  <!-- ================= ACHTERGRONDEN ================= -->
+  <main id="pagina-achtergronden" class="werkplek" hidden>
+    <aside class="paneel">
+      <section>
+        <h2>Toevoegen</h2>
+        <div class="knoppen">
+          <label class="knop hoofdknop">Bestanden kiezen
+            <input id="ag-bestanden" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+          </label>
+          <label class="knop">Hele map kiezen
+            <input id="ag-map" type="file" webkitdirectory multiple hidden>
+          </label>
+        </div>
+        <p class="uitleg">Of sleep een hele batch in één keer in het vak rechts. Dubbele worden overgeslagen.</p>
+        <p id="ag-status" class="status"></p>
+      </section>
+
+      <section>
+        <h2>Nieuwe achtergrond maken</h2>
+        <label>Omschrijving
+          <textarea id="ag-omschrijving" rows="3">zachte grijsblauwe studio-achtergrond met een lichte vignettering</textarea>
+        </label>
+        <button id="ag-nieuw" class="knop" type="button">✨ Nieuwe achtergrond maken</button>
+      </section>
+
+      <section>
+        <h2>Slim bewerken</h2>
+        <button id="ag-slim" class="knop" type="button" disabled>✨ Slim bewerken</button>
+        <p class="uitleg">Klik eerst rechts op een achtergrond.</p>
+      </section>
+
+      <section>
+        <h2>Delen met de filialen</h2>
+        <form id="wolk-inlog" hidden>
+          <p class="uitleg">Log één keer in met het account van dit filiaal. Daarna deelt ART nieuwe achtergronden vanzelf.</p>
+          <label>E-mail
+            <input id="wolk-email" type="email" autocomplete="username" required>
+          </label>
+          <label>Wachtwoord
+            <input id="wolk-ww" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="knop hoofdknop" type="submit">Inloggen</button>
+        </form>
+        <div id="wolk-ingelogd" hidden>
+          <p id="wolk-wie" class="uitleg"></p>
+          <button id="wolk-uit" class="knop" type="button">Uitloggen</button>
+        </div>
+        <p id="wolk-status" class="status"></p>
+      </section>
+
+      <section>
+        <h2>Resultaten terughalen</h2>
+        <div class="knoppen">
+          <button id="dl-koppel" class="knop" type="button">Downloadsmap koppelen</button>
+          <button id="dl-heropen" class="knop" type="button" hidden></button>
+        </div>
+        <p id="dl-status" class="uitleg">Koppel één keer de map waarin de browser downloads opslaat. Dan komt elk gedownload resultaat vanzelf bij de achtergronden.</p>
+      </section>
+    </aside>
+
+    <div id="ag-vak" class="vak vak-lijst">
+      <div id="bibliotheek" class="bibliotheek"></div>
+    </div>
+  </main>
+
+  <!-- Achtergrond kiezen -->
+  <dialog id="kiezer" class="venster">
+    <h3>Kies een achtergrond</h3>
+    <div id="kiezer-kleuren" class="kleuren"></div>
+    <div id="kiezer-lijst" class="bibliotheek klein"></div>
+    <p id="kiezer-leeg" class="uitleg" hidden>Er staan nog geen achtergronden in de bibliotheek. Voeg ze toe op de pagina Achtergronden.</p>
+    <div class="knoppen rechts"><button id="kiezer-annuleer" class="knop" type="button">Annuleren</button></div>
+  </dialog>
+
+  <!-- Waarschuwing Slim bewerken -->
+  <dialog id="slim-waarschuwing" class="venster smal">
+    <h3>⚠️ Let op</h3>
+    <p class="waarschuwing">Deze bewerking kan gezichten veranderen. Gebruik dit niet om een gezicht te bewerken.</p>
+    <div class="knoppen rechts">
+      <button id="slim-annuleer" class="knop" type="button">Annuleren</button>
+      <button id="slim-akkoord" class="knop hoofdknop" type="button">Ik begrijp het</button>
+    </div>
+  </dialog>
+
+  <!-- Stappen na het openen van het AI-venster -->
+  <dialog id="slim-stappen" class="venster smal">
+    <h3 id="slim-titel">✨</h3>
+    <ol id="slim-lijst" class="stappen"></ol>
+    <p id="slim-melding" class="status"></p>
+    <div class="knoppen">
+      <button id="slim-kopieer" class="knop" type="button">Opdracht opnieuw kopiëren</button>
+      <button id="slim-open" class="knop" type="button">AI-venster opnieuw openen</button>
+      <label class="knop">Resultaat zelf kiezen
+        <input id="slim-resultaat" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+      </label>
+    </div>
+    <div class="knoppen rechts"><button id="slim-sluit" class="knop hoofdknop" type="button">Klaar</button></div>
+  </dialog>
+
+  <!-- Eerste keer via de uitnodigingsmail: wachtwoord voor dit filiaal kiezen -->
+  <dialog id="welkom" class="venster smal">
+    <h3>Welkom bij ART</h3>
+    <form id="welkom-form">
+      <p id="welkom-uitleg" class="uitleg">Kies een wachtwoord voor dit filiaal (minstens 10 tekens). Daarmee logt dit filiaal voortaan in om de achtergronden te delen.</p>
+      <label>Nieuw wachtwoord
+        <input id="welkom-ww1" type="password" autocomplete="new-password" minlength="10" required>
+      </label>
+      <label>Nog een keer
+        <input id="welkom-ww2" type="password" autocomplete="new-password" minlength="10" required>
+      </label>
+      <p id="welkom-status" class="status"></p>
+      <div class="knoppen rechts"><button class="knop hoofdknop" type="submit">Wachtwoord opslaan</button></div>
+    </form>
+  </dialog>
+
+  <div id="printvlak" class="printvlak"><img id="printbeeld" alt=""></div>
+
+  <script src="vendor/supabase/supabase.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

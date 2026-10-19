@@ -1,0 +1,1 @@
+supabase-js 2.117.2 (npm @supabase/supabase-js, MIT), UMD-bundel: zet window.supabase. Lokaal zodat ART offline opstart.

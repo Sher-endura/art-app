@@ -1,0 +1,1 @@
+MediaPipe Tasks Vision 0.10.35 (npm @mediapipe/tasks-vision, Apache-2.0) + face_landmarker.task (float16/1) + selfie_segmenter.tflite (float16/1), beide van storage.googleapis.com/mediapipe-models. Lokaal zodat ART offline werkt.
