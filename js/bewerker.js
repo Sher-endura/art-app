@@ -1,6 +1,6 @@
 // Bewerkvenster: een foto bijwerken zoals in Photoshop.
 //   - Kleur en licht (hele foto): helderheid, contrast, verzadiging, warmte.
-//   - Penselen: haartjes/vlekjes weg, glans weg, wallen weg, huid egaler, vervagen, vegen.
+//   - Penselen: haartjes/vlekjes weg, glans weg, wallen weg, reflectie bril weg, huid egaler, vervagen, vegen.
 //   - Lasso: een stuk omcirkelen, kopiëren of knippen, plakken, spiegelen, verschuiven en plaatsen
 //     (bijv. de helft van een shirt spiegelen zodat het recht zit).
 //   - Zoomen (scrollwiel), schuiven (rechtermuisknop of spatie + slepen), ongedaan maken / opnieuw,
@@ -126,6 +126,30 @@ function stip(soort, d, bron, w, h, cx, cy, r, sterkte, verf) {
 
 const helder = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
 
+// Doosfilter (straal k) met een lopende som, horizontaal en dan verticaal.
+function doosVaag(bron, w, h, k) {
+  const T = new Float32Array(w * h), V = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let s = 0;
+    for (let x = 0; x < Math.min(w, k); x++) s += bron[y * w + x];
+    for (let x = 0; x < w; x++) {
+      if (x + k < w) s += bron[y * w + x + k];
+      if (x - k - 1 >= 0) s -= bron[y * w + x - k - 1];
+      T[y * w + x] = s / (Math.min(w - 1, x + k) - Math.max(0, x - k) + 1);
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let s = 0;
+    for (let y = 0; y < Math.min(h, k); y++) s += T[y * w + x];
+    for (let y = 0; y < h; y++) {
+      if (y + k < h) s += T[(y + k) * w + x];
+      if (y - k - 1 >= 0) s -= T[(y - k - 1) * w + x];
+      V[y * w + x] = s / (Math.min(h - 1, y + k) - Math.max(0, y - k) + 1);
+    }
+  }
+  return V;
+}
+
 // Glans weg: glans is wit licht bovenop de huid. We halen een DEEL van dat extra licht weg (sterkte),
 // niet alles: een gezicht heeft van nature lichte en donkere vlakken, en alles even donker maken
 // oogt plat en grauw. Alles wordt berekend op de foto zoals hij was bij het begin van de streek
@@ -157,27 +181,10 @@ function huidStip(soort, d, voor, w, h, cx, cy, r, afname) {
   if (!nh) { const mo = monsters[Math.floor(monsters.length * 0.4)]; huid[0] = mo[1]; huid[1] = mo[2]; huid[2] = mo[3]; nh = 1; }
   for (let c = 0; c < 3; c++) huid[c] /= nh;
   const huidL = Math.max(1, 0.299 * huid[0] + 0.587 * huid[1] + 0.114 * huid[2]);
-  // helderheid licht vervaagd (doosfilter met lopende som, horizontaal en dan verticaal)
-  const L = new Float32Array(w * h), T = new Float32Array(w * h), V = new Float32Array(w * h), k = Math.max(1, Math.round(r * 0.12));
+  // helderheid licht vervaagd
+  const L = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) L[i] = helder(voor, i * 4);
-  for (let y = 0; y < h; y++) {
-    let s = 0;
-    for (let x = 0; x < Math.min(w, k); x++) s += L[y * w + x];
-    for (let x = 0; x < w; x++) {
-      if (x + k < w) s += L[y * w + x + k];
-      if (x - k - 1 >= 0) s -= L[y * w + x - k - 1];
-      T[y * w + x] = s / (Math.min(w - 1, x + k) - Math.max(0, x - k) + 1);
-    }
-  }
-  for (let x = 0; x < w; x++) {
-    let s = 0;
-    for (let y = 0; y < Math.min(h, k); y++) s += T[y * w + x];
-    for (let y = 0; y < h; y++) {
-      if (y + k < h) s += T[(y + k) * w + x];
-      if (y - k - 1 >= 0) s -= T[(y - k - 1) * w + x];
-      V[y * w + x] = s / (Math.min(h - 1, y + k) - Math.max(0, y - k) + 1);
-    }
-  }
+  const V = doosVaag(L, w, h, Math.max(1, Math.round(r * 0.12)));
   const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
   const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
@@ -213,6 +220,61 @@ function huidStip(soort, d, voor, w, h, cx, cy, r, afname) {
       const eigen = voor[i + c] * (nieuwL / Math.max(1, L[p]));
       const metHuid = huid[c] * (nieuwL / huidL);
       const doelKleur = voor[i + c] + (eigen + (metHuid - eigen) * kleurMeng - voor[i + c]) * zacht;
+      d[i + c] += (doelKleur - d[i + c]) * m * 0.5;
+    }
+  }
+}
+
+// Reflectie in een brillenglas weg. Een reflectie is een glad, gekleurd laagje licht (vaak groenig,
+// blauwig of wit) BOVENOP de huid en het oog achter het glas. Rond de penseel liggen twee soorten
+// pixels: met reflectie (lichter en "koeler" dan huid: groen of blauw te hoog t.o.v. rood) en schone
+// huid (rood > groen > blauw). Het verschil tussen hun gemiddelden is de kleur van het laagje (R).
+// Per pixel wordt bepaald hoeveel van dat laagje erop ligt (projectie op R, licht vervaagd, 0..1) en
+// precies dat gaat eraf. Het oog, de wimpers en de huidstructuur eronder blijven zo staan; donkere
+// pixels (montuur, iris, wimpers) worden niet aangeraakt.
+function brilStip(d, voor, w, h, cx, cy, r, afname) {
+  const pak = (x, y) => { x = Math.max(0, Math.min(w - 1, Math.round(x))); y = Math.max(0, Math.min(h - 1, Math.round(y))); return (y * w + x) * 4; };
+  const koel = (j) => Math.max(voor[j + 1], voor[j + 2] + 8) - voor[j];   // > 0: groen/blauw boven rood
+  const monsters = [];
+  for (const straal of [1, 1.6, 2.4]) for (const [mx, my] of MONSTERS) monsters.push(pak(cx + mx * r * straal, cy + my * r * straal));
+  const hs = monsters.map((j) => helder(voor, j)).sort((a, b) => a - b);
+  const donker = hs[hs.length >> 1] * 0.6;
+  const schoon = [0, 0, 0], refl = [0, 0, 0];
+  let ns = 0, nr = 0;
+  for (const j of monsters) {
+    if (helder(voor, j) < donker) continue;
+    if (koel(j) <= -12) { for (let c = 0; c < 3; c++) schoon[c] += voor[j + c]; ns++; }
+    else if (koel(j) >= 0) { for (let c = 0; c < 3; c++) refl[c] += voor[j + c]; nr++; }
+  }
+  if (ns < 4 || nr < 4) return;   // geen duidelijke reflectie onder de penseel
+  for (let c = 0; c < 3; c++) { schoon[c] /= ns; refl[c] /= nr; }
+  const R = [0, 1, 2].map((c) => refl[c] - schoon[c]);
+  const RR = R[0] * R[0] + R[1] * R[1] + R[2] * R[2];
+  if (RR < 100) return;
+  // hoeveel laagje per pixel (0..1), licht vervaagd (het laagje is glad; de fijne details zijn huid/oog)
+  const A = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const j = i * 4;
+    if (helder(voor, j) < donker) continue;
+    const proj = ((voor[j] - schoon[0]) * R[0] + (voor[j + 1] - schoon[1]) * R[1] + (voor[j + 2] - schoon[2]) * R[2]) / RR;
+    A[i] = Math.max(0, Math.min(2.5, proj));   // felle plekken: meer dan het gemiddelde laagje
+  }
+  const As = doosVaag(A, w, h, Math.max(2, Math.round(r * 0.08)));
+  const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
+  const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const m = dekking(Math.hypot(x - cx, y - cy), r);
+    if (m <= 0) continue;
+    const p = y * w + x, i = p * 4;
+    if (helder(voor, i) < donker) continue;
+    // alleen waar de kleur echt koeler is dan de huid (rood − groen kleiner dan bij schone huid): gewone,
+    // lichtere huid (neus) wordt niet roze; heel lichte pixels (wit montuur, lichtpuntje in het oog) blijven
+    const koeler = Math.min(1, Math.max(0, ((schoon[0] - schoon[1]) - (voor[i] - voor[i + 1]) - 8) / 20));
+    const nietWit = Math.min(1, Math.max(0, (215 - helder(voor, i)) / 20));
+    const a = Math.min(As[p], A[p] + 0.3) * afname * koeler * nietWit;
+    if (a <= 0) continue;
+    for (let c = 0; c < 3; c++) {
+      const doelKleur = voor[i + c] - a * R[c];
       d[i + c] += (doelKleur - d[i + c]) * m * 0.5;
     }
   }
@@ -344,7 +406,8 @@ function dab(p) {
   const sterkte = Number($("bw-sterkte").value) / 100;
   // Haartjes weg en vegen werken met de volle sterkte; verzachten en vervagen bouwen op per stip.
   const perStip = gereedschap === "veeg" || gereedschap === "herstel" ? sterkte : sterkte * 0.6;
-  if (gereedschap === "glans" || gereedschap === "wallen") huidStip(gereedschap, id.data, streekVoor(x0, y0, id.width, id.height), id.width, id.height, p.x - x0, p.y - y0, r, sterkte * 0.75);
+  if (gereedschap === "bril") brilStip(id.data, streekVoor(x0, y0, id.width, id.height), id.width, id.height, p.x - x0, p.y - y0, r, sterkte);
+  else if (gereedschap === "glans" || gereedschap === "wallen") huidStip(gereedschap, id.data, streekVoor(x0, y0, id.width, id.height), id.width, id.height, p.x - x0, p.y - y0, r, sterkte * 0.75);
   else stip(gereedschap, id.data, bron, id.width, id.height, p.x - x0, p.y - y0, r, perStip, streek.verf);
   huidig.wctx.putImageData(id, x0, y0);
   if (gereedschap === "veeg") streek.verf = pakVerf(p, r);

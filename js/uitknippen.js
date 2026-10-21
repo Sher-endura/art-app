@@ -220,6 +220,7 @@ const DREMPEL_DEKKEND = 110;   // afstand waarboven een (verkleind) pixel als de
 const HAAR_ONDERGRENS = 0.85;  // plaatselijke maatstaf nooit lager dan dit deel van die van al het haar
 const DIEP_DEKKEND = 65;       // diep binnenin: vanaf deze afstand tot het doek altijd dekkend
 const SCHADUW_MAX = 45, SCHADUW_TINT = 0.9993; // schaduw op het doek: afstand < 45 en dezelfde kleurtint
+const LICHTER_MAX = 35;        // lichter dan het doek in dezelfde tint, tot deze afstand: ook achtergrond
 const LICHT_HAAR_FOTO = [255, 280]; // mediaan haar–doek: daaronder licht haar (lok-regel aan), daarboven uit
 const LICHT_HAAR = 230;        // gemiddelde afstand haar–doek waaronder het haar "licht" is (grijs/wit);
                                // gemeten: grijs 130–190, dreadlocks 230–260, zwart haar 300+
@@ -416,11 +417,12 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     // doorschijnt (gaten tussen dreadlocks/krullen). Zo worden grijze haren in zwart haar niet doorzichtig.
     if (diep[j] >= 245 && d >= DIEP_DEKKEND) return 255;
     // Schaduw op het studiodoek (bijv. van het haar): iets donkerder, maar dezelfde kleurtint als het
-    // doek. Dat is achtergrond, geen persoon.
+    // doek. Dat is achtergrond, geen persoon. Andersom ook: muur die rond de personen net wat meer licht
+    // krijgt (flits) is lichter, maar dezelfde tint; anders blijven daar lichte vlekken staan.
     if (d < SCHADUW_MAX) {
       const bl = Math.hypot(achter[j], achter[j + 1], achter[j + 2]), cl = Math.hypot(pixels[j], pixels[j + 1], pixels[j + 2]);
       const cos = (pixels[j] * achter[j] + pixels[j + 1] * achter[j + 1] + pixels[j + 2] * achter[j + 2]) / (bl * cl || 1);
-      if (cl < bl && cos > SCHADUW_TINT) return 0;
+      if (cos > SCHADUW_TINT && (cl < bl || d < LICHTER_MAX)) return 0;
     }
     // Hoeveel persoon? Afstand tot de achtergrond, gedeeld door die van dekkend haar hier (× DEKKEND,
     // net iets minder dan 1 zodat lichtere lokken in dekkend haar toch helemaal dekken). Een dun
