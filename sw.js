@@ -1,6 +1,6 @@
 // Service worker: zorgt dat ART ook zonder internet opstart.
 // Eerst het netwerk proberen (dan krijg je altijd de nieuwste versie), anders de opgeslagen kopie.
-const CACHE = "art-v22";
+const CACHE = "art-v23";
 const BESTANDEN = [
   "./", "./index.html", "./style.css", "./manifest.webmanifest",
   "./js/main.js", "./js/landen.js", "./js/matrix.js", "./js/editor.js", "./js/afdrukvel.js", "./js/cameramap.js",
@@ -14,6 +14,9 @@ const BESTANDEN = [
   ...["kruk-01-boucle-poef-ivoor", "kruk-02-walnoot-lederen-kruk", "kruk-03-travertin-piedestal-kruk", "kruk-04-zwart-metalen-designkruk",
     "kruk-05-teal-fluwelen-poef", "kruk-06-japandi-eiken-kruk", "stoel-01-mid-century-walnoot-leer", "stoel-02-luxe-ivoren-boucle",
     "stoel-03-zwart-spijlenstoel", "stoel-04-licht-eiken-en-riet", "stoel-05-teal-fluweel", "stoel-06-camel-modern",
+    "fauteuil-01-cognac-chesterfield", "fauteuil-02-donkerbruin-leren-wingback", "fauteuil-03-ivoor-boucle-cocoon",
+    "fauteuil-04-emerald-fluweel", "fauteuil-05-beige-linnen-klassiek", "fauteuil-06-dusty-rose-fluweel",
+    "fauteuil-07-antraciet-maatwerkstof", "fauteuil-08-moderne-creme-fauteuil",
   ].flatMap((n) => [`./props/${n}.png`, `./props/mini/${n}.png`]),
 ];
 

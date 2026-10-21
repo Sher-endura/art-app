@@ -23,6 +23,14 @@ export const PROPS = [
   { id: "stoel-04-licht-eiken-en-riet", naam: "Licht eiken en riet", soort: "stoel", zit: 0.41 },
   { id: "stoel-05-teal-fluweel", naam: "Teal fluweel", soort: "stoel", zit: 0.40 },
   { id: "stoel-06-camel-modern", naam: "Camel modern", soort: "stoel", zit: 0.45 },
+  { id: "fauteuil-01-cognac-chesterfield", naam: "Cognac chesterfield", soort: "fauteuil", zit: 0.50 },
+  { id: "fauteuil-02-donkerbruin-leren-wingback", naam: "Donkerbruin leer (wingback)", soort: "fauteuil", zit: 0.57 },
+  { id: "fauteuil-03-ivoor-boucle-cocoon", naam: "Ivoor bouclé cocoon", soort: "fauteuil", zit: 0.56 },
+  { id: "fauteuil-04-emerald-fluweel", naam: "Emerald fluweel", soort: "fauteuil", zit: 0.50 },
+  { id: "fauteuil-05-beige-linnen-klassiek", naam: "Beige linnen klassiek", soort: "fauteuil", zit: 0.50 },
+  { id: "fauteuil-06-dusty-rose-fluweel", naam: "Dusty rose fluweel", soort: "fauteuil", zit: 0.44 },
+  { id: "fauteuil-07-antraciet-maatwerkstof", naam: "Antraciet", soort: "fauteuil", zit: 0.51 },
+  { id: "fauteuil-08-moderne-creme-fauteuil", naam: "Moderne crème", soort: "fauteuil", zit: 0.55 },
 ];
 const ZITHOOGTE = 0.37;   // zithoogte als deel van de lengte van de zittende persoon (kruin tot voeten)
 
@@ -42,7 +50,7 @@ export function laadProp(id) {
 // ---------- kiezen ----------
 let kiesKlaar = null;
 export function kiesProp() {
-  for (const [soort, vak] of [["kruk", "prop-krukken"], ["stoel", "prop-stoelen"]]) {
+  for (const [soort, vak] of [["kruk", "prop-krukken"], ["stoel", "prop-stoelen"], ["fauteuil", "prop-fauteuils"]]) {
     $(vak).replaceChildren(...PROPS.filter((p) => p.soort === soort).map((p) => {
       const t = document.createElement("button");
       t.type = "button"; t.className = "tegel";
