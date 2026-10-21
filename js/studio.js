@@ -82,7 +82,7 @@ async function zetAchtergrond(keuze) {
     const n = st.gezichten.length;
     st.gezichtGelijk = n === 0 || res.gezichtGelijk;
     if (n === 0) status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}. Let op: geen gezicht herkend — controleer zelf of het gezicht goed is.`, "let");
-    else if (res.gezichtGelijk) status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}${st.correctie ? " (uitsnede bijgewerkt)" : ""}. ✓ ${n === 1 ? "Gezicht" : `Alle ${n} gezichten`} onveranderd (pixel voor pixel gecontroleerd).`, "goed");
+    else if (res.gezichtGelijk) status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}${st.correctie ? " (uitsnede bijgewerkt)" : ""}${res.metHulp ? " · met ART-hulp" : ""}. ✓ ${n === 1 ? "Gezicht" : `Alle ${n} gezichten`} onveranderd (pixel voor pixel gecontroleerd).`, "goed");
     else status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}. ✗ Een gezicht wijkt af (${res.afwijkend} pixels).`, "fout");
   } catch {
     status("studio-achtergrondstatus", "Achtergrond vervangen lukte niet.", "fout");

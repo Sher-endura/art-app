@@ -245,7 +245,7 @@ async function zetAchtergrond(keuze) {
     Object.assign(pas, { achtergrond: keuze, gezichtGelijk: res.gezichtGelijk });
     editor.vervangBeeld(res.beeld);
     st.textContent = res.gezichtGelijk
-      ? `Achtergrond: ${keuze.naam}${pas.correctie ? " (uitsnede bijgewerkt)" : ""}.`
+      ? `Achtergrond: ${keuze.naam}${pas.correctie ? " (uitsnede bijgewerkt)" : ""}${res.metHulp ? " · met ART-hulp" : ""}.`
       : `Achtergrond: ${keuze.naam}. ✗ Het gezicht wijkt af (${res.afwijkend} pixels).`;
     st.className = "uitleg " + (res.gezichtGelijk ? "goed" : "fout");
   } catch {

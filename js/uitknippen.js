@@ -7,6 +7,7 @@
 //    het opslaan en afdrukken.
 // Alleen de buitenrand van haar/kleding wordt zacht overgevloeid, anders ontstaat een harde knipselrand.
 import { maakPersoonSegmenter } from "./mediapipe.js";
+import { masker as hulpMasker } from "./hulp.js";
 
 let segmenter = null;
 function laadSegmenter() {
@@ -218,6 +219,7 @@ const RIJ_DREMPEL = 20;        // p90 van het verloop daarboven: achtergrond per
 const TINT_WEGING = 1.8;       // idem: weging van een verschil in tint t.o.v. helderheid
 const DONKER_WEGING = 120;     // idem: verschillen tussen kleuren donkerder dan dit wegen zwaarder (× 120 / helderheid)
 const ZEKER_ACHTER_MIN = 60;   // idem: waar het model zeker is van achtergrond, telt pas vanaf dit verschil iets als persoon
+const HULP_HAAR = [20, 60];    // ART-hulp: haarNabij hieronder = BiRefNet, hierboven = ART's eigen uitknippen (haar)
 const VOL_RUIMTE = 45;         // idem: overgang van achtergrond naar helemaal persoon (niet bij haar)
 const RIJ_ZIJ = 12;            // zoveel bekende pixels links en rechts tellen mee
 function achtergrondPerRij(pixels, zeker, mogelijk, textuur, W, H) {
@@ -381,6 +383,10 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   const { w: mw, h: mh } = ruw;
   const pas = achtergrondVerloop(ruw.klein, ruw.data, mw, mh);
   const perRij = pas && pas.p90 > RIJ_DREMPEL;
+  // Foto in een gewone ruimte (muur, plint, vloer): ART-hulp (BiRefNet) werkt tegelijk mee. Op een
+  // studiodoek is ART zelf beter (losse haartjes, dreadlocks) en wordt ART-hulp niet gebruikt.
+  // Draait ART-hulp niet, dan blijft het bij ART's eigen uitknippen.
+  const hulpBelofte = perRij ? hulpMasker(beeld, g) : Promise.resolve(null);
   let verloop = pas?.c || kleurSchatting(ruw.klein, mw, mh, (i) => ruw.data[i] < 0.05, [12, 40, 120]);
   let achter, ruis = null;
   // In een gewone ruimte: buiten het haar licht vervaagd vergelijken (zacht), zodat de korrel van de
@@ -648,7 +654,21 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     return a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
   }
   if (ruis) randZuiveren(pixels, alfa, achter, gezicht, haar, W, H);
-  return { alfa, gezicht, achter };
+  // Met ART-hulp: het model BiRefNet bepaalt lichaam, kleding, schoenen en wat er van de vloer, muur en
+  // plint weg moet; in en rond het HAAR (dreadlocks, krullen, losse haartjes) blijft ART's eigen
+  // uitknippen, met een zachte overgang daartussen. Het gezicht blijft altijd helemaal staan.
+  const hulp = await hulpBelofte;
+  if (hulp) {
+    const bc = grijsCanvas(Float32Array.from(hulp.data, (v) => v / 255), hulp.w, hulp.h);
+    const bir = naarVolleMaat(bc, W, H, g);
+    for (let i = 0; i < W * H; i++) {
+      if (gezicht[i]) continue;
+      const j = i * 4;
+      const inHaar = Math.max(0, Math.min(1, (haarNabij[j] - HULP_HAAR[0]) / (HULP_HAAR[1] - HULP_HAAR[0])));
+      alfa[i] = Math.round(inHaar * alfa[i] + (1 - inHaar) * bir[j]);
+    }
+  }
+  return { alfa, gezicht, achter, metHulp: !!hulp };
 }
 
 // Nieuwe achtergrond tekenen op volle maat: een effen kleur ("#rrggbb") of een afbeelding (vullend).
@@ -740,11 +760,11 @@ export function stelSamen(d, a, correctie, x0, y0, x1, y1, u, uw) {
 // beeld: de originele opname (ImageBitmap); gezichten: lijst met per gezicht de punten uit de
 // gezichtsherkenning (mag leeg zijn); achtergrond: "#rrggbb" of een ImageBitmap; gebied (optioneel):
 // { x, y, w, h } in beeldpixels waar de persoon staat; correctie (optioneel): zie gecorrigeerd().
-// Geeft { beeld, gezichtGelijk, gezichtPixels, afwijkend }.
+// Geeft { beeld, gezichtGelijk, gezichtPixels, afwijkend, metHulp (true = uitgeknipt met ART-hulp) }.
 export async function vervangAchtergrond(beeld, gezichten, achtergrond, gebied = null, correctie = null) {
   const W = beeld.width, H = beeld.height;
   const o = lees(beeld);
-  const { alfa, gezicht, achter } = await zorgVoorMasker(beeld, o, gezichten, gebied);
+  const { alfa, gezicht, achter, metHulp } = await zorgVoorMasker(beeld, o, gezichten, gebied);
   const a = achtergrondPixels(W, H, achtergrond);
 
   const uit = new ImageData(W, H);
@@ -767,5 +787,5 @@ export async function vervangAchtergrond(beeld, gezichten, achtergrond, gebied =
     const j = i * 4;
     if (t2[j] !== o[j] || t2[j + 1] !== o[j + 1] || t2[j + 2] !== o[j + 2]) afwijkend++;
   }
-  return { beeld: resultaat, gezichtGelijk: gezichtPixels > 0 && afwijkend === 0, gezichtPixels, afwijkend };
+  return { beeld: resultaat, gezichtGelijk: gezichtPixels > 0 && afwijkend === 0, gezichtPixels, afwijkend, metHulp };
 }
