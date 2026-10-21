@@ -1,6 +1,6 @@
 // Bewerkvenster: een foto bijwerken zoals in Photoshop.
 //   - Kleur en licht (hele foto): helderheid, contrast, verzadiging, warmte.
-//   - Penselen: haartjes/vlekjes weg, huid egaler, vervagen, vegen.
+//   - Penselen: haartjes/vlekjes weg, glans weg, huid egaler, vervagen, vegen.
 //   - Lasso: een stuk omcirkelen, kopiëren of knippen, plakken, spiegelen, verschuiven en plaatsen
 //     (bijv. de helft van een shirt spiegelen zodat het recht zit).
 //   - Zoomen (scrollwiel), schuiven (rechtermuisknop of spatie + slepen), ongedaan maken / opnieuw,
@@ -124,6 +124,58 @@ function stip(soort, d, bron, w, h, cx, cy, r, sterkte, verf) {
   }
 }
 
+const helder = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+
+// Glans weg: de gewone huid in de buurt (40e percentiel van de helderheid; haar en schaduw tellen zo
+// niet mee, de glans zelf ook niet) geeft de doelkleur. Waar het (licht vervaagde) beeld lichter is
+// dan die huid, schuift de pixel naar de huidkleur, met behoud van de fijne huidstructuur
+// (pixel ÷ vervaagde omgeving). Zo komt er huidkleur terug in plaats van een grauwe vlek.
+function glansStip(d, w, h, cx, cy, r, sterkte) {
+  const pak = (x, y) => { x = Math.max(0, Math.min(w - 1, Math.round(x))); y = Math.max(0, Math.min(h - 1, Math.round(y))); return (y * w + x) * 4; };
+  const monsters = MONSTERS.map(([mx, my]) => { const j = pak(cx + mx * r * 1.6, cy + my * r * 1.6); return [helder(d, j), d[j], d[j + 1], d[j + 2]]; })
+    .sort((a, b) => a[0] - b[0]);
+  const doel = monsters[Math.floor(monsters.length * 0.4)][0];
+  const huid = [0, 0, 0];
+  let nh = 0;
+  for (const mo of monsters) if (Math.abs(mo[0] - doel) <= 10) { huid[0] += mo[1]; huid[1] += mo[2]; huid[2] += mo[3]; nh++; }
+  for (let c = 0; c < 3; c++) huid[c] /= nh;
+  const huidL = 0.299 * huid[0] + 0.587 * huid[1] + 0.114 * huid[2];
+  // helderheid licht vervaagd (doosfilter met lopende som, horizontaal en dan verticaal)
+  const L = new Float32Array(w * h), T = new Float32Array(w * h), V = new Float32Array(w * h), k = Math.max(1, Math.round(r * 0.12));
+  for (let i = 0; i < w * h; i++) L[i] = helder(d, i * 4);
+  for (let y = 0; y < h; y++) {
+    let s = 0;
+    for (let x = 0; x < Math.min(w, k); x++) s += L[y * w + x];
+    for (let x = 0; x < w; x++) {
+      if (x + k < w) s += L[y * w + x + k];
+      if (x - k - 1 >= 0) s -= L[y * w + x - k - 1];
+      T[y * w + x] = s / (Math.min(w - 1, x + k) - Math.max(0, x - k) + 1);
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let s = 0;
+    for (let y = 0; y < Math.min(h, k); y++) s += T[y * w + x];
+    for (let y = 0; y < h; y++) {
+      if (y + k < h) s += T[(y + k) * w + x];
+      if (y - k - 1 >= 0) s -= T[(y - k - 1) * w + x];
+      V[y * w + x] = s / (Math.min(h - 1, y + k) - Math.max(0, y - k) + 1);
+    }
+  }
+  const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
+  const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const m = dekking(Math.hypot(x - cx, y - cy), r) * sterkte;
+    if (m <= 0) continue;
+    // kleine glimstipjes (neus) tellen ook mee: de pixel zelf weegt half mee
+    const p = y * w + x, teveel = Math.max(V[p], (V[p] + L[p]) / 2) - doel - 2;
+    if (teveel <= 0) continue;
+    const i = p * 4, f = m * Math.min(1, teveel / 8);
+    // structuur: poriën (donkerder) blijven; lichtere puntjes zijn glans en worden afgetopt
+    const structuur = Math.min(1.04, L[p] / Math.max(1, V[p])) * (doel / Math.max(1, huidL));
+    for (let c = 0; c < 3; c++) d[i + c] += (huid[c] * structuur - d[i + c]) * f;
+  }
+}
+
 // ---------- het venster ----------
 let huidig = null;       // Bewerking die openstaat
 let klaar = null;        // resolve van open()
@@ -235,7 +287,8 @@ function dab(p) {
   const sterkte = Number($("bw-sterkte").value) / 100;
   // Haartjes weg en vegen werken met de volle sterkte; verzachten en vervagen bouwen op per stip.
   const perStip = gereedschap === "veeg" || gereedschap === "herstel" ? sterkte : sterkte * 0.6;
-  stip(gereedschap, id.data, bron, id.width, id.height, p.x - x0, p.y - y0, r, perStip, streek.verf);
+  if (gereedschap === "glans") glansStip(id.data, id.width, id.height, p.x - x0, p.y - y0, r, perStip);
+  else stip(gereedschap, id.data, bron, id.width, id.height, p.x - x0, p.y - y0, r, perStip, streek.verf);
   huidig.wctx.putImageData(id, x0, y0);
   if (gereedschap === "veeg") streek.verf = pakVerf(p, r);
 }
