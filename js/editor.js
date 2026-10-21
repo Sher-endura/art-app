@@ -2,6 +2,7 @@
 // Plaatsing van de foto: beeldpixel (ix, iy) ligt op (ox + ix/k, oy + iy/k) mm in het kader.
 // k = beeldpixels per mm (kleiner = foto groter).
 import { tekenMatrix, tekenMaten } from "./matrix.js";
+import { adviesKleur } from "./landen.js";
 
 const MARGE = 9;        // mm rond het kader zichtbaar (gedimd), handig bij schuiven
 const RUIMTE_LABELS = 7; // extra mm rechts voor de labels kruin/ogen/kin
@@ -156,7 +157,7 @@ export class Editor {
     c.width = Math.round(B * P);
     c.height = Math.round(H * P);
     const ctx = c.getContext("2d");
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = adviesKleur(this.doc); // waar de foto het kader niet vult
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
@@ -193,8 +194,8 @@ export class Editor {
     const { breedte: B, hoogte: H } = this.doc.foto;
     const [fx, fy] = mm(0, 0);
 
-    // Witte kaderachtergrond (zichtbaar zolang er nog geen foto is).
-    ctx.fillStyle = "#ffffff";
+    // Kader in de achtergrondkleur die het land voorschrijft (zichtbaar zolang er nog geen foto is).
+    ctx.fillStyle = adviesKleur(this.doc);
     ctx.fillRect(fx, fy, B * s, H * s);
 
     if (this.beeld) {

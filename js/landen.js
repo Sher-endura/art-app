@@ -54,8 +54,9 @@ export const LANDEN = [
         foto: { breedte: 35, hoogte: 45 },
         hoofd: { min: 32, max: 36, doel: 34 },
         hoofdMidden: 22.5,
-        achtergrond: ["licht"],
-        aanname: "Hoofdmaat uit een Franse ambassadebron; plaats op de foto aangenomen in het midden.",
+        // France-Visas (ISO/IEC 19794-5): "fond uni, de couleur claire (bleu clair, gris clair). Le blanc est interdit."
+        achtergrond: ["lichtgrijs", "lichtblauw"],
+        aanname: "Hoofdmaat uit een Franse ambassadebron; plaats op de foto aangenomen in het midden. Wit is verboden.",
       },
     ],
   },
@@ -244,6 +245,20 @@ export const LANDEN = [
     ],
   },
 ];
+
+// De effen pasfotokleuren. Per document staat in "achtergrond" wat mag; de eerste is het advies.
+// "licht" = elke lichte kleur (dan is wit het advies).
+export const PASFOTOKLEUREN = [
+  { id: "wit", naam: "Wit", kleur: "#ffffff" },
+  { id: "lichtgrijs", naam: "Lichtgrijs", kleur: "#d6d6d6" },
+  { id: "lichtblauw", naam: "Lichtblauw", kleur: "#cfe3f5" },
+  { id: "creme", naam: "Crème", kleur: "#f2e8d5" },
+];
+export function toegestaneKleuren(doc) {
+  const ids = (doc.achtergrond || ["licht"]).flatMap((k) => (k === "licht" ? PASFOTOKLEUREN.map((p) => p.id) : [k]));
+  return [...new Set(ids)].map((id) => PASFOTOKLEUREN.find((p) => p.id === id)).filter(Boolean);
+}
+export const adviesKleur = (doc) => toegestaneKleuren(doc)[0]?.kleur || "#ffffff";
 
 export function zoekDocument(id) {
   for (const land of LANDEN) {

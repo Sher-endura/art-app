@@ -9,6 +9,7 @@ import * as bib from "./achtergronden.js";
 import { MapWachter, cameramapMogelijk } from "./cameramap.js";
 import * as wolk from "./wolk.js";
 import { WEERGAVEN, vakken, aantallen, toonNaam } from "./soorten.js";
+import { PASFOTOKLEUREN } from "./landen.js";
 
 const AI_ADRES = "https://chatgpt.com/";
 const WACHTTIJD = 15 * 60 * 1000; // zo lang na een klik neemt ART downloads aan als resultaat
@@ -111,31 +112,27 @@ async function batch(bestanden, bron = "batch") {
 }
 
 // ---------- venster "Kies een achtergrond" ----------
-export const EFFEN = [
-  { naam: "Wit", kleur: "#ffffff" },
-  { naam: "Lichtgrijs", kleur: "#d6d6d6" },
-  { naam: "Lichtblauw", kleur: "#cfe3f5" },
-  { naam: "Crème", kleur: "#f2e8d5" },
-];
-
 // Geeft { soort: "kleur", kleur, naam } of { soort: "bibliotheek", id, naam }, of null bij annuleren.
-export async function kiesAchtergrond({ kleuren = false } = {}) {
+// toegestaan (pasfoto): alleen de kleuren die het land toestaat, de eerste als advies; uitleg erbij.
+export async function kiesAchtergrond({ kleuren = false, toegestaan = null, uitleg = "" } = {}) {
   const venster = $("kiezer");
   const lijst = await bib.lijst();
   $("kiezer-kleuren").hidden = !kleuren;
   $("kiezer-leeg").hidden = lijst.length > 0;
   return new Promise((klaar) => {
     const kies = (waarde) => { venster.close(); klaar(waarde); };
-    $("kiezer-kleuren").replaceChildren(...EFFEN.map((e) => {
+    const knoppen = (toegestaan || PASFOTOKLEUREN).map((e, nr) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "kleur";
       const i = document.createElement("i");
       i.style.background = e.kleur;
-      b.append(i, e.naam);
+      b.append(i, e.naam + (toegestaan && nr === 0 && toegestaan.length > 1 ? " (advies)" : ""));
       b.addEventListener("click", () => kies({ soort: "kleur", kleur: e.kleur, naam: e.naam.toLowerCase() }));
       return b;
-    }));
+    });
+    if (uitleg) knoppen.push(Object.assign(document.createElement("p"), { className: "uitleg kleur-uitleg", textContent: uitleg }));
+    $("kiezer-kleuren").replaceChildren(...knoppen);
     toonInSoorten("kiezer", $("kiezer-soorten"), $("kiezer-lijst"), lijst, (it) => kies({ soort: "bibliotheek", id: it.id, naam: it.naam }), true);
     $("kiezer-annuleer").onclick = () => kies(null);
     venster.oncancel = () => klaar(null);

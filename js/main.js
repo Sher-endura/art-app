@@ -1,5 +1,5 @@
 // ART · by Super Photo — scherm aansturen.
-import { LANDEN, zoekDocument } from "./landen.js";
+import { LANDEN, zoekDocument, toegestaneKleuren } from "./landen.js";
 import { Editor } from "./editor.js";
 import { indeling, maakVel, naarJpeg } from "./afdrukvel.js";
 import { cameramapMogelijk } from "./cameramap.js";
@@ -51,6 +51,17 @@ function kiesDocument() {
   $("aanname").hidden = !doc.aanname;
   $("aanname").textContent = doc.aanname ? `Let op: ${doc.aanname}` : "";
   zetResolutie();
+  // Ander document: een kleur die hier niet mag wordt de advieskleur; anders opnieuw uitknippen (ander kader).
+  // (Koos de medewerker "Originele achtergrond", dan blijft dat zo.)
+  if (beeld && pas.basis && editor.analyse && pas.achtergrond?.soort === "kleur") {
+    const mag = toegestaneKleuren(doc).find((k) => k.kleur === pas.achtergrond.kleur);
+    zetAchtergrond(mag ? pas.achtergrond : adviesAchtergrond(doc));
+  }
+}
+// De kleur die het land voorschrijft (de eerste toegestane) als achtergrondkeuze.
+function adviesAchtergrond(doc) {
+  const k = toegestaneKleuren(doc)[0];
+  return { soort: "kleur", kleur: k.kleur, naam: k.naam.toLowerCase() };
 }
 $("land").addEventListener("change", vulDocumenten);
 $("document").addEventListener("change", kiesDocument);
@@ -94,6 +105,8 @@ async function laadBestand(bestand) {
     if (analyse) {
       editor.laadBeeld(beeld, analyse, puntenVoor(analyse, editor.doc));
       status(`${bestand.name}: automatisch uitgelijnd (kruin: ${kiesKruin(analyse, editor.doc).methode}). Controleer de gele lijnen; klopt het niet, klik kruin en kin zelf aan.`, "goed");
+      // Meteen uitknippen op de achtergrondkleur van het land; de medewerker werkt alleen nog bij.
+      zetAchtergrond(adviesAchtergrond(editor.doc));
     } else {
       status(`${bestand.name}: geen gezicht gevonden. Klik kruin en kin zelf aan.`, "fout");
     }
@@ -241,8 +254,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------- achtergrond vervangen (pasfoto) ----------
+let achtergrondBeurt = 0; // alleen de laatst gevraagde achtergrond telt (snel wisselen van land/document)
 async function zetAchtergrond(keuze) {
-  const beeld = pas.basis, st = $("pas-achtergrondstatus");
+  const beeld = pas.basis, st = $("pas-achtergrondstatus"), nr = ++achtergrondBeurt;
   if (!editor.analyse) {
     st.textContent = "Geen gezicht herkend: achtergrond vervangen kan alleen als ART het gezicht kan beschermen.";
     st.className = "uitleg fout";
@@ -255,7 +269,7 @@ async function zetAchtergrond(keuze) {
     // Het gezicht wordt vergeleken met de (eventueel bewerkte) foto: het uitknippen zelf mag het
     // gezicht nooit veranderen.
     const res = await vervangAchtergrond(beeld, [editor.analyse.punten], achter, editor.kaderInBeeld(), pas.correctie);
-    if (pas.basis !== beeld) return;
+    if (pas.basis !== beeld || nr !== achtergrondBeurt) return;
     Object.assign(pas, { achtergrond: keuze, gezichtGelijk: res.gezichtGelijk });
     editor.vervangBeeld(res.beeld);
     st.textContent = res.gezichtGelijk
@@ -268,7 +282,10 @@ async function zetAchtergrond(keuze) {
   }
 }
 $("pas-vervang").addEventListener("click", async () => {
-  const keuze = await kiesAchtergrond({ kleuren: true });
+  const doc = editor.doc, mag = toegestaneKleuren(doc);
+  const land = LANDEN.find((l) => l.documenten.includes(doc));
+  const uitleg = `${land ? land.naam + " — " : ""}${doc.naam}: ${mag.length === 1 ? "alleen" : "toegestaan:"} ${mag.map((m) => m.naam.toLowerCase()).join(", ")}.`;
+  const keuze = await kiesAchtergrond({ kleuren: true, toegestaan: mag, uitleg });
   if (keuze && pas.basis) zetAchtergrond(keuze);
 });
 $("pas-uitsnede").addEventListener("click", async () => {

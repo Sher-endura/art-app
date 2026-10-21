@@ -151,6 +151,7 @@ textarea {
 .venster h3 { margin: 0 0 12px; color: var(--goud); }
 .knoppen.rechts { justify-content: flex-end; margin-top: 16px; }
 .kleuren { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.kleur-uitleg { flex-basis: 100%; margin: 0; }
 .kleur {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
   background: #1b2230; border: 2px solid #3a4558; border-radius: 8px; padding: 6px 12px 6px 6px;
