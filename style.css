@@ -93,7 +93,7 @@ select {
   overflow: hidden; padding: 16px;
 }
 .vak.sleep-erin { outline: 3px dashed var(--goud); outline-offset: -10px; }
-.werkplek[hidden] { display: none; }
+.werkplek[hidden], .bewerker[hidden] { display: none; }
 canvas { display: block; touch-action: none; }
 
 /* ---- tabs ---- */
@@ -173,6 +173,22 @@ h3.sub { font-size: 13px; color: var(--goud); margin: 14px 0 6px; font-weight: 6
 .wachtrij li.bezet .knop { display: none; }
 .wachtrij .knop { padding: 6px 10px; font-size: 14px; }
 .wachtrij .leeg { color: var(--tekst-2); font-size: 14px; border: none; }
+
+/* ---- bewerkvenster ---- */
+.bewerker { position: fixed; inset: 0; z-index: 50; background: var(--achter); display: flex; flex-direction: column; }
+.bw-kop { display: flex; align-items: center; gap: 16px; padding: 8px 16px; border-bottom: 1px solid var(--rand); }
+.bw-kop h3 { margin: 0 8px 0 0; color: var(--goud); font-size: 18px; }
+.bw-kop .knoppen:last-child { margin-left: auto; }
+.bw-waarschuwing { margin: 0; padding: 8px 16px; background: #3a2a10; color: #ffe2a8; border-bottom: 1px solid #6b4e1c; }
+.bw-werkplek { flex: 1; display: flex; min-height: 0; }
+.bw-paneel { width: 300px; }
+.bw-gereedschappen { display: grid; gap: 6px; margin-bottom: 12px; }
+.bw-gereedschap.actief { background: var(--goud); color: #1a1406; border-color: var(--goud); font-weight: 600; }
+.bw-paneel input[type="range"] { width: 100%; display: block; margin-top: 4px; accent-color: var(--goud); }
+.bw-paneel label span { float: right; color: var(--tekst); }
+.bw-vak { flex: 1; position: relative; overflow: hidden; min-width: 0; }
+.bw-vak canvas { display: block; cursor: none; touch-action: none; }
+.bw-cirkel { position: absolute; pointer-events: none; border: 1.5px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #000; }
 
 .printvlak { display: none; }
 @media print {

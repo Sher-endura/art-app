@@ -4,12 +4,14 @@ import { alleGezichten } from "./gezicht.js";
 import { vervangAchtergrond } from "./uitknippen.js";
 import { kiesAchtergrond, slimBewerken } from "./bibliotheek.js";
 import * as bib from "./achtergronden.js";
+import { open as openBewerker, heeftBewerking } from "./bewerker.js";
 
 const $ = (id) => document.getElementById(id);
 
 const st = {
   naam: "",
   origineel: null,   // de opname zoals de camera hem maakte
+  basis: null,       // origineel met de bewerkingen uit het bewerkvenster
   beeld: null,       // wat getoond en opgeslagen wordt
   gezichten: null,   // punten per gezicht (null = nog niet gezocht)
   keuze: null,       // gekozen achtergrond { soort, id/kleur, naam }
@@ -18,7 +20,7 @@ const st = {
 
 function status(id, tekst, soort = "") {
   $(id).textContent = tekst;
-  $(id).className = (id === "studio-achtergrondstatus" ? "uitleg " : "status ") + soort;
+  $(id).className = (id === "studio-status" ? "status " : "uitleg ") + soort;
 }
 
 function teken() {
@@ -37,7 +39,8 @@ function teken() {
 function knoppen() {
   const heeft = !!st.origineel;
   $("studio-vervang").disabled = !heeft;
-  $("studio-origineel").hidden = !heeft || st.beeld === st.origineel;
+  $("studio-bewerk").disabled = !heeft;
+  $("studio-origineel").hidden = !heeft || !st.keuze;
   const geblokkeerd = heeft && !st.gezichtGelijk;
   $("studio-opslaan").disabled = !heeft || geblokkeerd;
   $("studio-blokkade").hidden = !geblokkeerd;
@@ -47,7 +50,8 @@ function knoppen() {
 export async function laadStudiofoto(bestand) {
   try {
     const beeld = await createImageBitmap(bestand, { imageOrientation: "from-image" });
-    Object.assign(st, { naam: bestand.name, origineel: beeld, beeld, gezichten: null, keuze: null, gezichtGelijk: true });
+    Object.assign(st, { naam: bestand.name, origineel: beeld, basis: beeld, beeld, gezichten: null, keuze: null, gezichtGelijk: true });
+    status("studio-bewerkstatus", "Kleur en licht, haartjes en vlekjes weg, huid egaler, vervagen, vegen.");
     status("studio-status", `Geladen: ${bestand.name} (${beeld.width} × ${beeld.height} px)`, "goed");
     status("studio-achtergrondstatus", "Het gezicht blijft altijd precies zoals op de opname.");
     teken();
@@ -59,14 +63,17 @@ export async function laadStudiofoto(bestand) {
 
 async function vervang() {
   const keuze = await kiesAchtergrond({ kleuren: true });
-  if (!keuze || !st.origineel) return;
-  const beeld = st.origineel;
+  if (keuze && st.origineel) await zetAchtergrond(keuze);
+}
+
+async function zetAchtergrond(keuze) {
+  const beeld = st.basis;
   status("studio-achtergrondstatus", "Bezig: gezichten zoeken en uitknippen…");
   try {
     if (!st.gezichten) st.gezichten = await alleGezichten(beeld);
     const achter = keuze.soort === "kleur" ? keuze.kleur : await bib.laadBeeld(keuze.id);
     const res = await vervangAchtergrond(beeld, st.gezichten, achter);
-    if (st.origineel !== beeld) return; // intussen een andere foto geladen
+    if (st.basis !== beeld) return; // intussen een andere foto geladen of opnieuw bewerkt
     st.beeld = res.beeld;
     st.keuze = keuze;
     const n = st.gezichten.length;
@@ -82,7 +89,7 @@ async function vervang() {
 }
 
 function origineel() {
-  Object.assign(st, { beeld: st.origineel, keuze: null, gezichtGelijk: true });
+  Object.assign(st, { beeld: st.basis, keuze: null, gezichtGelijk: true });
   status("studio-achtergrondstatus", "Originele achtergrond terug.");
   teken();
   knoppen();
@@ -100,6 +107,18 @@ async function opslaan() {
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `ART_studio_${basis}_${stempel}.jpg` });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// Bewerken (kleur en licht, penselen). Daarna wordt een gekozen achtergrond opnieuw toegepast.
+async function bewerk() {
+  if (!st.origineel) return;
+  const beeld = st.origineel;
+  const res = await openBewerker(beeld, { titel: "Studiofoto bewerken" });
+  if (!res || st.origineel !== beeld) return;
+  st.basis = res;
+  status("studio-bewerkstatus", heeftBewerking(beeld) ? "Foto bewerkt." : "Geen bewerkingen.", heeftBewerking(beeld) ? "goed" : "");
+  if (st.keuze) await zetAchtergrond(st.keuze);
+  else { st.beeld = st.basis; teken(); knoppen(); }
 }
 
 // Slim bewerken werkt op de achtergrond (nooit op de persoon): de gekozen achtergrond, of kies er een.
@@ -129,6 +148,7 @@ export function startStudio() {
     if (f) laadStudiofoto(f);
   });
   $("studio-vervang").addEventListener("click", vervang);
+  $("studio-bewerk").addEventListener("click", bewerk);
   $("studio-origineel").addEventListener("click", origineel);
   $("studio-opslaan").addEventListener("click", opslaan);
   $("studio-slim").addEventListener("click", slim);

@@ -66,6 +66,12 @@
       </section>
 
       <section>
+        <h2>Bewerken</h2>
+        <button id="pas-bewerk" class="knop" type="button" disabled>Foto bewerken</button>
+        <p id="pas-bewerkstatus" class="uitleg">Kleur en licht, haartjes en vlekjes weg, huid egaler, vervagen, vegen.</p>
+      </section>
+
+      <section>
         <h2>Achtergrond</h2>
         <div class="knoppen">
           <button id="pas-vervang" class="knop" type="button" disabled>Achtergrond vervangen</button>
@@ -115,6 +121,12 @@
         <p id="studio-status" class="status">Open een foto, sleep er een in het vak, of pak er een op uit de wachtrij.</p>
         <h3 class="sub">Wachtrij camera</h3>
         <ul id="wachtrij-studio" class="wachtrij"></ul>
+      </section>
+
+      <section>
+        <h2>Bewerken</h2>
+        <button id="studio-bewerk" class="knop" type="button" disabled>Foto bewerken</button>
+        <p id="studio-bewerkstatus" class="uitleg">Kleur en licht, haartjes en vlekjes weg, huid egaler, vervagen, vegen.</p>
       </section>
 
       <section>
@@ -243,6 +255,64 @@
     </div>
     <div class="knoppen rechts"><button id="slim-sluit" class="knop hoofdknop" type="button">Klaar</button></div>
   </dialog>
+
+  <!-- Bewerkvenster (kleur en licht, penselen) -->
+  <div id="bewerker" class="bewerker" hidden>
+    <header class="bw-kop">
+      <h3 id="bw-titel">Foto bewerken</h3>
+      <div class="knoppen">
+        <button id="bw-ongedaan" class="knop" type="button" title="Ctrl+Z">↶ Ongedaan maken</button>
+        <button id="bw-opnieuw" class="knop" type="button" title="Ctrl+Y">↷ Opnieuw</button>
+        <button id="bw-voorna" class="knop" type="button" title="Ingedrukt houden">Voor / na (ingedrukt houden)</button>
+        <button id="bw-passend" class="knop" type="button">Passend</button>
+      </div>
+      <div class="knoppen">
+        <button id="bw-annuleer" class="knop" type="button">Annuleren</button>
+        <button id="bw-klaar" class="knop hoofdknop" type="button">Klaar</button>
+      </div>
+    </header>
+    <p id="bw-waarschuwing" class="bw-waarschuwing" hidden>⚠️ Let op: dit is een pasfoto. Landen kunnen een bewerkte pasfoto afkeuren.</p>
+    <div class="bw-werkplek">
+      <aside class="paneel bw-paneel">
+        <section>
+          <h2>Penselen</h2>
+          <div class="bw-gereedschappen">
+            <button class="knop bw-gereedschap" data-g="herstel" type="button">Haartjes / vlekjes weg</button>
+            <button class="knop bw-gereedschap" data-g="huid" type="button">Huid egaler</button>
+            <button class="knop bw-gereedschap" data-g="vervaag" type="button">Vervagen</button>
+            <button class="knop bw-gereedschap" data-g="veeg" type="button">Vegen</button>
+          </div>
+          <label>Grootte penseel
+            <input id="bw-grootte" type="range" min="4" max="300" value="40">
+          </label>
+          <label>Sterkte
+            <input id="bw-sterkte" type="range" min="5" max="100" value="70">
+          </label>
+          <p class="uitleg">Slepen = penselen · scrollwiel = zoomen · rechtermuisknop of spatie + slepen = schuiven · [ en ] = penseel kleiner/groter</p>
+        </section>
+        <section>
+          <h2>Kleur en licht</h2>
+          <label>Helderheid <span id="bw-helderheid-waarde">0</span>
+            <input id="bw-helderheid" type="range" min="-100" max="100" value="0">
+          </label>
+          <label>Contrast <span id="bw-contrast-waarde">0</span>
+            <input id="bw-contrast" type="range" min="-100" max="100" value="0">
+          </label>
+          <label>Verzadiging <span id="bw-verzadiging-waarde">0</span>
+            <input id="bw-verzadiging" type="range" min="-100" max="100" value="0">
+          </label>
+          <label>Warmte <span id="bw-warmte-waarde">0</span>
+            <input id="bw-warmte" type="range" min="-100" max="100" value="0">
+          </label>
+          <button id="bw-kleur-terug" class="knop" type="button">Kleur en licht terug op 0</button>
+        </section>
+      </aside>
+      <div id="bw-vak" class="bw-vak">
+        <canvas id="bw-canvas"></canvas>
+        <div id="bw-cirkel" class="bw-cirkel" hidden></div>
+      </div>
+    </div>
+  </div>
 
   <!-- Eerste keer via de uitnodigingsmail: wachtwoord voor dit filiaal kiezen -->
   <dialog id="welkom" class="venster smal">

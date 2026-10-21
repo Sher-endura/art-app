@@ -10,6 +10,7 @@ import { vervangAchtergrond } from "./uitknippen.js";
 import { kiesAchtergrond, startBibliotheek } from "./bibliotheek.js";
 import { startStudio, laadStudiofoto } from "./studio.js";
 import * as bib from "./achtergronden.js";
+import { open as openBewerker, start as startBewerker, heeftBewerking } from "./bewerker.js";
 
 const $ = (id) => document.getElementById(id);
 const komma = (n, d = 1) => n.toFixed(d).replace(".", ",");
@@ -17,7 +18,8 @@ const komma = (n, d = 1) => n.toFixed(d).replace(".", ",");
 const editor = new Editor($("canvas"), bijwerken);
 let fotonaam = "";
 // Pasfoto: de originele opname en de vervangen achtergrond (als die er is).
-const pas = { origineel: null, achtergrond: null, gezichtGelijk: true };
+// basis = origineel met de bewerkingen uit het bewerkvenster (of het origineel zelf).
+const pas = { origineel: null, basis: null, achtergrond: null, gezichtGelijk: true };
 
 // ---------- pagina's ----------
 let pagina = "pasfoto";
@@ -77,7 +79,9 @@ async function laadBestand(bestand) {
   try {
     const beeld = await createImageBitmap(bestand, { imageOrientation: "from-image" });
     fotonaam = bestand.name;
-    Object.assign(pas, { origineel: beeld, achtergrond: null, gezichtGelijk: true });
+    Object.assign(pas, { origineel: beeld, basis: beeld, achtergrond: null, gezichtGelijk: true });
+    $("pas-bewerkstatus").textContent = "Kleur en licht, haartjes en vlekjes weg, huid egaler, vervagen, vegen.";
+    $("pas-bewerkstatus").className = "uitleg";
     $("pas-achtergrondstatus").textContent = "Het gezicht blijft altijd precies zoals op de opname.";
     $("pas-achtergrondstatus").className = "uitleg";
     editor.laadBeeld(beeld);
@@ -222,10 +226,8 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------- achtergrond vervangen (pasfoto) ----------
-$("pas-vervang").addEventListener("click", async () => {
-  const keuze = await kiesAchtergrond({ kleuren: true });
-  if (!keuze || !pas.origineel) return;
-  const beeld = pas.origineel, st = $("pas-achtergrondstatus");
+async function zetAchtergrond(keuze) {
+  const beeld = pas.basis, st = $("pas-achtergrondstatus");
   if (!editor.analyse) {
     st.textContent = "Geen gezicht herkend: achtergrond vervangen kan alleen als ART het gezicht kan beschermen.";
     st.className = "uitleg fout";
@@ -235,8 +237,10 @@ $("pas-vervang").addEventListener("click", async () => {
   st.className = "uitleg";
   try {
     const achter = keuze.soort === "kleur" ? keuze.kleur : await bib.laadBeeld(keuze.id);
+    // Het gezicht wordt vergeleken met de (eventueel bewerkte) foto: het uitknippen zelf mag het
+    // gezicht nooit veranderen.
     const res = await vervangAchtergrond(beeld, [editor.analyse.punten], achter, editor.kaderInBeeld());
-    if (pas.origineel !== beeld) return;
+    if (pas.basis !== beeld) return;
     Object.assign(pas, { achtergrond: keuze, gezichtGelijk: res.gezichtGelijk });
     editor.vervangBeeld(res.beeld);
     st.textContent = res.gezichtGelijk
@@ -247,12 +251,30 @@ $("pas-vervang").addEventListener("click", async () => {
     st.textContent = "Achtergrond vervangen lukte niet.";
     st.className = "uitleg fout";
   }
+}
+$("pas-vervang").addEventListener("click", async () => {
+  const keuze = await kiesAchtergrond({ kleuren: true });
+  if (keuze && pas.basis) zetAchtergrond(keuze);
 });
 $("pas-origineel").addEventListener("click", () => {
   Object.assign(pas, { achtergrond: null, gezichtGelijk: true });
-  editor.vervangBeeld(pas.origineel);
+  editor.vervangBeeld(pas.basis);
   $("pas-achtergrondstatus").textContent = "Originele achtergrond terug.";
   $("pas-achtergrondstatus").className = "uitleg";
+});
+
+// ---------- bewerken (pasfoto) ----------
+$("pas-bewerk").addEventListener("click", async () => {
+  if (!pas.origineel) return;
+  const beeld = pas.origineel;
+  const res = await openBewerker(beeld, { pasfoto: true, titel: "Pasfoto bewerken" });
+  if (!res || pas.origineel !== beeld) return;
+  pas.basis = res;
+  const bewerkt = heeftBewerking(beeld);
+  $("pas-bewerkstatus").textContent = bewerkt ? "Foto bewerkt. Let op: landen kunnen een bewerkte pasfoto afkeuren." : "Geen bewerkingen.";
+  $("pas-bewerkstatus").className = "uitleg " + (bewerkt ? "let" : "");
+  if (pas.achtergrond) await zetAchtergrond(pas.achtergrond); // achtergrond opnieuw op de bewerkte foto
+  else editor.vervangBeeld(pas.basis);
 });
 
 // ---------- scherm bijwerken ----------
@@ -260,7 +282,7 @@ let kwaliteitRegels = [], kwaliteitTimer = null;
 function bijwerken() {
   const heeftFoto = !!editor.beeld;
   const geblokkeerd = heeftFoto && !pas.gezichtGelijk;
-  for (const id of ["klikken", "kleiner", "groter", "pas-vervang"]) $(id).disabled = !heeftFoto;
+  for (const id of ["klikken", "kleiner", "groter", "pas-vervang", "pas-bewerk"]) $(id).disabled = !heeftFoto;
   for (const id of ["opslaan", "afdrukken"]) $(id).disabled = !heeftFoto || geblokkeerd;
   $("pas-origineel").hidden = !pas.achtergrond;
   $("blokkade").hidden = !geblokkeerd;
@@ -303,6 +325,8 @@ function toonControle() {
   regels.push([m.vult ? "goed" : "fout", m.vult ? "Foto vult het hele kader" : "Foto vult het kader niet helemaal (witte rand)"]);
   regels.push(...oogcontrole(editor.analyse));
   regels.push(...kwaliteitRegels);
+  if (pas.origineel && heeftBewerking(pas.origineel))
+    regels.push(["let", "Foto bewerkt — sommige landen keuren bewerkte pasfoto's af"]);
   if (pas.achtergrond)
     regels.push(pas.gezichtGelijk ? ["goed", "Gezicht onveranderd (pixel voor pixel gecontroleerd)"]
                                   : ["fout", "Gezicht wijkt af van de opname"]);
@@ -367,5 +391,6 @@ for (const r of document.querySelectorAll('input[name="dpi"]')) r.addEventListen
 // ---------- start ----------
 vulDocumenten();
 startStudio();
+startBewerker();
 startBibliotheek();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
