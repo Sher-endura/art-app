@@ -1,6 +1,6 @@
 // Service worker: zorgt dat ART ook zonder internet opstart.
 // Eerst het netwerk proberen (dan krijg je altijd de nieuwste versie), anders de opgeslagen kopie.
-const CACHE = "art-v20";
+const CACHE = "art-v21";
 const BESTANDEN = [
   "./", "./index.html", "./style.css", "./manifest.webmanifest",
   "./js/main.js", "./js/landen.js", "./js/matrix.js", "./js/editor.js", "./js/afdrukvel.js", "./js/cameramap.js",
@@ -9,7 +9,12 @@ const BESTANDEN = [
   "./vendor/supabase/supabase.js",
   "./vendor/mediapipe/vision_bundle.mjs", "./vendor/mediapipe/face_landmarker.task", "./vendor/mediapipe/selfie_multiclass_256x256.tflite",
   "./vendor/mediapipe/wasm/vision_wasm_internal.js", "./vendor/mediapipe/wasm/vision_wasm_internal.wasm",
-  "./icons/icon-192.png", "./icons/icon-512.png",
+  "./icons/icon-192.png", "./icons/icon-512.png", "./icons/favicon-32.png", "./icons/logo-licht.png", "./js/props.js",
+  // props (kruk/stoel): ook zonder internet beschikbaar
+  ...["kruk-01-boucle-poef-ivoor", "kruk-02-walnoot-lederen-kruk", "kruk-03-travertin-piedestal-kruk", "kruk-04-zwart-metalen-designkruk",
+    "kruk-05-teal-fluwelen-poef", "kruk-06-japandi-eiken-kruk", "stoel-01-mid-century-walnoot-leer", "stoel-02-luxe-ivoren-boucle",
+    "stoel-03-zwart-spijlenstoel", "stoel-04-licht-eiken-en-riet", "stoel-05-teal-fluweel", "stoel-06-camel-modern",
+  ].flatMap((n) => [`./props/${n}.png`, `./props/mini/${n}.png`]),
 ];
 
 self.addEventListener("install", (e) => {

@@ -28,9 +28,8 @@ body {
   padding: 10px 20px;
   border-bottom: 1px solid var(--rand);
 }
-.logo { display: flex; flex-direction: column; line-height: 1; }
-.logo-art { font: bold 30px Georgia, "Times New Roman", serif; color: var(--goud); letter-spacing: 2px; }
-.logo-by { font-size: 13px; color: var(--tekst); margin-top: 3px; letter-spacing: 0.5px; }
+.logo { display: flex; align-items: center; line-height: 1; }
+.logo img { display: block; height: 52px; width: auto; }
 
 .werkplek { flex: 1; display: flex; min-height: 0; }
 
@@ -131,6 +130,7 @@ textarea {
 .tegel img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 4px; background: #0b0e13; }
 .tegel span { display: block; font-size: 13px; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tegel .bron { color: var(--goud); }
+.prop-tegels .tegel img { aspect-ratio: 1; object-fit: contain; background: #ebe8e1; padding: 8px; }
 .leeg-lijst { color: var(--tekst-2); padding: 20px; }
 
 /* ---- vensters ---- */
@@ -162,7 +162,7 @@ input[type="text"] {
   border: 1px solid var(--rand); border-radius: 6px; padding: 7px 8px; font: inherit;
 }
 .werkplek-naam { margin-top: 10px; }
-h3.sub { font-size: 13px; color: var(--goud); margin: 14px 0 6px; font-weight: 600; }
+h3.sub, h4.sub { font-size: 13px; color: var(--goud); margin: 14px 0 6px; font-weight: 600; }
 .wachtrij { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
 .wachtrij li { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--rand); }
 .wachtrij li:last-child { border-bottom: none; }
@@ -188,6 +188,8 @@ h3.sub { font-size: 13px; color: var(--goud); margin: 14px 0 6px; font-weight: 6
 .bw-paneel label span { float: right; color: var(--tekst); }
 .bw-vak { flex: 1; position: relative; overflow: hidden; min-width: 0; }
 .bw-vak canvas { display: block; cursor: none; touch-action: none; }
+#pp-vak canvas { cursor: grab; }
+#pp-vak canvas.sleept { cursor: grabbing; }
 .bw-cirkel { position: absolute; pointer-events: none; border: 1.5px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #000; }
 
 .printvlak { display: none; }

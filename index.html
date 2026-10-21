@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ART · by Super Photo</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon-192.png">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <meta name="theme-color" content="#0e1116">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="kop">
     <div class="logo">
-      <span class="logo-art">ART</span>
-      <span class="logo-by">by Super Photo</span>
+      <img src="icons/logo-licht.png" alt="ART · by Super Photo" width="131" height="60">
     </div>
     <nav class="tabs">
       <button type="button" class="tab actief" data-pagina="pasfoto">Pasfoto</button>
@@ -138,6 +138,16 @@
           <button id="studio-uitsnede" class="knop" type="button" hidden>Uitsnede bijwerken</button>
         </div>
         <p id="studio-achtergrondstatus" class="uitleg">Het gezicht blijft altijd precies zoals op de opname.</p>
+      </section>
+
+      <section>
+        <h2>Prop (kruk of stoel)</h2>
+        <div class="knoppen">
+          <button id="studio-prop" class="knop" type="button" disabled>Prop kiezen</button>
+          <button id="studio-prop-plaats" class="knop" type="button" hidden>Prop plaatsen</button>
+          <button id="studio-prop-weg" class="knop" type="button" hidden>Geen prop</button>
+        </div>
+        <p id="studio-propstatus" class="uitleg">Een nieuwe kruk of stoel achter de persoon zetten. Kies eerst een achtergrond.</p>
       </section>
 
       <section>
@@ -351,6 +361,52 @@
   </dialog>
 
   <div id="printvlak" class="printvlak"><img id="printbeeld" alt=""></div>
+
+  <!-- Prop kiezen -->
+  <dialog id="prop-kiezer" class="venster">
+    <h3>Kies een prop</h3>
+    <h4 class="sub">Krukken en poefs</h4>
+    <div id="prop-krukken" class="bibliotheek klein prop-tegels"></div>
+    <h4 class="sub">Stoelen</h4>
+    <div id="prop-stoelen" class="bibliotheek klein prop-tegels"></div>
+    <div class="knoppen rechts"><button id="prop-annuleer" class="knop" type="button">Annuleren</button></div>
+  </dialog>
+
+  <!-- Prop plaatsen: verslepen, groter/kleiner, spiegelen -->
+  <div id="propplaats" class="bewerker" hidden>
+    <header class="bw-kop">
+      <h3>Prop plaatsen</h3>
+      <div class="knoppen">
+        <button id="pp-spiegel" class="knop" type="button">Spiegelen ↔</button>
+        <button id="pp-passend" class="knop" type="button">Passend</button>
+      </div>
+      <div class="knoppen">
+        <button id="pp-annuleer" class="knop" type="button">Annuleren</button>
+        <button id="pp-klaar" class="knop hoofdknop" type="button">Klaar</button>
+      </div>
+    </header>
+    <div class="bw-werkplek">
+      <aside class="paneel bw-paneel">
+        <section>
+          <h2>Plaatsen</h2>
+          <label>Grootte <span id="pp-grootte-waarde"></span>
+            <input id="pp-grootte" type="range" min="10" max="150" value="60">
+          </label>
+          <label>Schaduw <span id="pp-schaduw-waarde"></span>
+            <input id="pp-schaduw" type="range" min="0" max="100" value="45">
+          </label>
+          <label>Helderheid <span id="pp-helder-waarde"></span>
+            <input id="pp-helder" type="range" min="-40" max="40" value="0">
+          </label>
+          <p class="uitleg">Sleep de prop op zijn plek: de zitting onder het bekken, de poten op de vloer. Maak hem met <strong>Grootte</strong> zo groot dat de zithoogte klopt. De prop komt <strong>achter</strong> de persoon.</p>
+          <p class="uitleg">Daarna: haal de oude kruk weg met <strong>Uitsnede bijwerken</strong> → <strong>Weg</strong>. Waar de oude kruk weg is, komt de nieuwe prop (of de achtergrond) tevoorschijn.</p>
+        </section>
+      </aside>
+      <div id="pp-vak" class="bw-vak">
+        <canvas id="pp-canvas"></canvas>
+      </div>
+    </div>
+  </div>
 
   <!-- Uitsnede bijwerken: met twee penselen aangeven wat bij de persoon hoort en wat weg moet -->
   <div id="uitsnede" class="bewerker" hidden>
