@@ -13,9 +13,36 @@ export async function alleGezichten(beeld) {
     groepsherkenner.catch(() => { groepsherkenner = null; });
   }
   const h = await groepsherkenner;
-  const c = uitsnede(beeld, 0, 0, beeld.width, beeld.height);
-  const r = h.detect(c);
-  return (r.faceLandmarks || []).map((lm) => lm.map((p) => ({ x: p.x * beeld.width, y: p.y * beeld.height })));
+  const W = beeld.width, H = beeld.height;
+  const gevonden = [];
+  // Voeg een gezicht toe. Is het (bijna) hetzelfde als een al gevonden gezicht, dan blijft de versie
+  // die het verst van de rand van zijn stuk lag (een gezicht op de rand van een stuk is onbetrouwbaar).
+  const marges = [];
+  const voegToe = (punten, marge) => {
+    const mx = punten[1].x, my = punten[1].y, grootte = Math.abs(punten[152].y - punten[10].y);
+    const i = gevonden.findIndex((g) => Math.hypot(g[1].x - mx, g[1].y - my) < grootte * 0.5);
+    if (i < 0) { gevonden.push(punten); marges.push(marge); }
+    else if (marge > marges[i]) { gevonden[i] = punten; marges[i] = marge; }
+  };
+  const zoek = (x, y, w, hh, heel = false) => {
+    const r = h.detect(uitsnede(beeld, x, y, w, hh));
+    for (const lm of r.faceLandmarks || []) {
+      const punten = lm.map((p) => ({ x: x + p.x * w, y: y + p.y * hh }));
+      const xs = punten.map((p) => p.x), ys = punten.map((p) => p.y);
+      const marge = heel ? Infinity : Math.min(Math.min(...xs) - x, x + w - Math.max(...xs), Math.min(...ys) - y, y + hh - Math.max(...ys));
+      voegToe(punten, marge);
+    }
+  };
+  zoek(0, 0, W, H, true);
+  // Op een foto van heel het lichaam (of een groep) is een gezicht te klein voor de herkenning:
+  // ook zoeken in overlappende stukken van ± 1/3 van de foto (uitvergroot).
+  const s = Math.round(Math.max(W, H) / 3), stap = Math.round(s / 2);
+  for (let y = 0; y < H; y += stap) for (let x = 0; x < W; x += stap) {
+    const w = Math.min(s, W - x), hh = Math.min(s, H - y);
+    if (w < s / 2 || hh < s / 2) continue;
+    zoek(x, y, w, hh);
+  }
+  return gevonden;
 }
 
 function laadHerkenner() {

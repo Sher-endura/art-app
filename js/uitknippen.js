@@ -190,6 +190,8 @@ function achtergrondVerloop(klein, kans, w, h) {
   let co = pas(punten);
   const fout = punten.map((p) => Math.hypot(...[0, 1, 2].map((k) => waarde(co[k], p[0]) - p[k + 1])));
   const grens = 2.5 * Math.sqrt(fout.reduce((s, f) => s + f * f, 0) / fout.length) + 2;
+  // hoe goed past één verloop? (90e percentiel van de afwijking: studiodoek ± 5, muur + plint + vloer ± 50)
+  const p90 = [...fout].sort((a, b) => a - b)[Math.floor(fout.length * 0.9)];
   punten = punten.filter((_, i) => fout[i] <= grens);
   co = pas(punten);
   const c = canvas(w, h), id = c.getContext("2d").createImageData(w, h);
@@ -198,7 +200,101 @@ function achtergrondVerloop(klein, kans, w, h) {
     id.data[i] = waarde(co[0], a); id.data[i + 1] = waarde(co[1], a); id.data[i + 2] = waarde(co[2], a); id.data[i + 3] = 255;
   }
   c.getContext("2d").putImageData(id, 0, 0);
-  return c;
+  return { c, p90 };
+}
+
+// De oude achtergrond PER RIJ, voor een foto van heel het lichaam in een gewone ruimte: muur, zwarte
+// plint en vloer zijn horizontale banden; één vloeiend verloop past daar niet. Waar de achtergrond te
+// zien is ("bekend"), geldt die zelf (mediaan van 3 punten op de rij, zodat een los haartje niet
+// meetelt). Achter de persoon wordt per rij recht doorgetrokken tussen het gemiddelde van de bekende
+// pixels links en rechts ervan; zo loopt de plint achter de benen door. Ook de ruis van de achtergrond
+// (bijv. vloerbedekking) wordt zo per plek geschat, zodat die korrel niet als "persoon" telt.
+// Twee rondes: eerst is alleen bekend wat ver van de persoon ligt. Daarna ook wat dichterbij ligt en
+// volgens het model achtergrond is, maar ALLEEN als de kleur er ook bij past (zelfde als de eerste
+// schatting, of dezelfde tint maar donkerder = schaduw) EN de structuur (korrelige vloerbedekking
+// tegenover glad leer of huid). Het model ziet voeten, schoenen en een kruk niet altijd als persoon;
+// zonder die controles werden die doorzichtig.
+const RIJ_DREMPEL = 20;        // p90 van het verloop daarboven: achtergrond per rij schatten
+const TINT_WEGING = 1.8;       // idem: weging van een verschil in tint t.o.v. helderheid
+const DONKER_WEGING = 120;     // idem: verschillen tussen kleuren donkerder dan dit wegen zwaarder (× 120 / helderheid)
+const ZEKER_ACHTER_MIN = 60;   // idem: waar het model zeker is van achtergrond, telt pas vanaf dit verschil iets als persoon
+const VOL_RUIMTE = 45;         // idem: overgang van achtergrond naar helemaal persoon (niet bij haar)
+const RIJ_ZIJ = 12;            // zoveel bekende pixels links en rechts tellen mee
+function achtergrondPerRij(pixels, zeker, mogelijk, textuur, W, H) {
+  const eerste = rijSchatting(pixels, (k) => mogelijk[k * 4] < 3, W, H);
+  const e = eerste.achter;
+  const bekend = (k) => {
+    if (zeker[k * 4] >= 6) return false;
+    const j = k * 4;
+    // op een korrelige ondergrond (vloerbedekking) is een gladde plek iets anders: sandaal, huid
+    if (eerste.ruis[k] > 4 && textuur[j] / 4 < 0.35 * eerste.ruis[k]) return false;
+    // ook een paar rijen hoger en lager vergelijken: de rand van de plint loopt nooit precies recht
+    let d = Infinity;
+    for (const dy of [-4, -2, 0, 2, 4]) {
+      const jj = Math.max(0, Math.min(W * H - 1, k + dy * W)) * 4;
+      d = Math.min(d, Math.hypot(pixels[j] - e[jj], pixels[j + 1] - e[jj + 1], pixels[j + 2] - e[jj + 2]));
+    }
+    if (d < Math.max(20, 3 * eerste.ruis[k])) return true;
+    const bl = Math.hypot(e[j], e[j + 1], e[j + 2]), cl = Math.hypot(pixels[j], pixels[j + 1], pixels[j + 2]);
+    const cos = (pixels[j] * e[j] + pixels[j + 1] * e[j + 1] + pixels[j + 2] * e[j + 2]) / (bl * cl || 1);
+    return cl < bl && cos > 0.998;   // schaduw op muur of vloer
+  };
+  return rijSchatting(pixels, bekend, W, H);
+}
+function rijSchatting(pixels, bekend, W, H) {
+  const uit = new Uint8ClampedArray(W * H * 4), ruis = new Float32Array(W * H);
+  const leeg = new Uint8Array(H);
+  const med3 = (a, b, c) => Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+  const zij = (rij, van, tot) => {   // gemiddelde kleur en ruis van bekende pixels in [van, tot)
+    const s = [0, 0, 0]; let n = 0;
+    for (let x = van; x < tot; x++) { const j = (rij + x) * 4; s[0] += pixels[j]; s[1] += pixels[j + 1]; s[2] += pixels[j + 2]; n++; }
+    if (!n) return null;
+    for (let c = 0; c < 3; c++) s[c] /= n;
+    let afw = 0;
+    for (let x = van; x < tot; x++) { const j = (rij + x) * 4; afw += Math.abs(pixels[j] - s[0]) + Math.abs(pixels[j + 1] - s[1]) + Math.abs(pixels[j + 2] - s[2]); }
+    return { kleur: s, ruis: afw / n / 3 };
+  };
+  for (let y = 0; y < H; y++) {
+    const rij = y * W;
+    let heeftBekend = false;
+    for (let x = 0; x < W;) {
+      if (bekend(rij + x)) {
+        const j = (rij + x) * 4, a = (rij + Math.max(0, x - 6)) * 4, b = (rij + Math.min(W - 1, x + 6)) * 4;
+        for (let c = 0; c < 3; c++) uit[j + c] = med3(pixels[a + c], pixels[j + c], pixels[b + c]);
+        uit[j + 3] = 255;
+        heeftBekend = true;
+        x++;
+        continue;
+      }
+      let e = x;
+      while (e < W && !bekend(rij + e)) e++;
+      let vanL = x, vanR = e;
+      while (vanL > 0 && x - vanL < RIJ_ZIJ && bekend(rij + vanL - 1)) vanL--;
+      while (vanR < W && vanR - e < RIJ_ZIJ && bekend(rij + vanR)) vanR++;
+      const L = zij(rij, vanL, x), R = zij(rij, e, vanR);
+      if (!L && !R) { leeg[y] = 1; x = e; continue; }
+      const a = L || R, b = R || L;
+      for (let k = x; k < e; k++) {
+        const f = (k - x + 0.5) / (e - x), j = (rij + k) * 4;
+        for (let c = 0; c < 3; c++) uit[j + c] = a.kleur[c] * (1 - f) + b.kleur[c] * f;
+        uit[j + 3] = 255;
+        ruis[rij + k] = a.ruis * (1 - f) + b.ruis * f;
+      }
+      x = e;
+    }
+    if (!heeftBekend) leeg[y] = 1;
+  }
+  // rijen zonder bekende achtergrond: van de dichtstbijzijnde goede rij
+  for (let y = 0; y < H; y++) {
+    if (!leeg[y]) continue;
+    let d = 1;
+    while (d < H && (y - d < 0 || leeg[y - d]) && (y + d >= H || leeg[y + d])) d++;
+    const bron = y - d >= 0 && !leeg[y - d] ? y - d : y + d;
+    if (bron < 0 || bron >= H) continue;
+    uit.copyWithin(y * W * 4, bron * W * 4, (bron + 1) * W * 4);
+    ruis.copyWithin(y * W, bron * W, (bron + 1) * W);
+  }
+  return { achter: uit, ruis };
 }
 
 // Masker (0..255) op volle grootte.
@@ -243,9 +339,32 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   const haarNabij = naarVolleMaat(vervaag(haarKaart, 14), W, H, g);
   const kledingKaart = naarVolleMaat(vervaag(grijsCanvas(ruw.kleding, ruw.w, ruw.h), 3), W, H, g);
   const { w: mw, h: mh } = ruw;
-  const verloop = achtergrondVerloop(ruw.klein, ruw.data, mw, mh)
-    || kleurSchatting(ruw.klein, mw, mh, (i) => ruw.data[i] < 0.05, [12, 40, 120]);
-  const achter = naarVolleMaat(verloop, W, H, g, "#fff");
+  const pas = achtergrondVerloop(ruw.klein, ruw.data, mw, mh);
+  const perRij = pas && pas.p90 > RIJ_DREMPEL;
+  let verloop = pas?.c || kleurSchatting(ruw.klein, mw, mh, (i) => ruw.data[i] < 0.05, [12, 40, 120]);
+  let achter, ruis = null;
+  // In een gewone ruimte: buiten het haar licht vervaagd vergelijken (zacht), zodat de korrel van de
+  // vloerbedekking rond de voeten niet als losse puntjes blijft staan; en de fijne structuur per plek
+  // (textuur: vloerbedekking is korrelig, leer, huid en een plint zijn glad).
+  let zacht = null, textuur = null;
+  if (perRij) {
+    const bc = canvas(W, H);
+    bc.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(pixels), W, H), 0, 0);
+    zacht = vervaag(bc, 2).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+    const tc = canvas(W, H), tId = tc.getContext("2d").createImageData(W, H);
+    for (let i = 0; i < W * H * 4; i += 4) {
+      const v = Math.min(255, 4 * (Math.abs(pixels[i] - zacht[i]) + Math.abs(pixels[i + 1] - zacht[i + 1]) + Math.abs(pixels[i + 2] - zacht[i + 2])) / 3);
+      tId.data[i] = tId.data[i + 1] = tId.data[i + 2] = v; tId.data[i + 3] = 255;
+    }
+    tc.getContext("2d").putImageData(tId, 0, 0);
+    textuur = vervaag(tc, 3).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;   // ÷ 4
+    ({ achter, ruis } = achtergrondPerRij(pixels, zeker, mogelijk, textuur, W, H));
+    // verkleinde versie voor de maatstaven hieronder
+    const groot = canvas(W, H);
+    groot.getContext("2d").putImageData(new ImageData(achter, W, H), 0, 0);
+    verloop = canvas(mw, mh);
+    verloop.getContext("2d").drawImage(groot, g.x, g.y, g.w, g.h, 0, 0, mw, mh);
+  } else achter = naarVolleMaat(verloop, W, H, g, "#fff");
   // Hoe ver ligt DEKKEND haar/kleding hier van de achtergrond af? Per plek gemeten aan pixels die
   // zeker persoon zijn en duidelijk anders dan de achtergrond (niet de gaten, niet de randjes).
   // Een randpixel dat maar half zo ver van de achtergrond ligt, is half bedekt.
@@ -410,19 +529,50 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   }
   function kleurAlfa(j) {
     if (mogelijk[j] < 3) return 0;
-    const vr = pixels[j] - achter[j], vg = pixels[j + 1] - achter[j + 1], vb = pixels[j + 2] - achter[j + 2];
-    const d = Math.hypot(vr, vg, vb);
-    if (d < KLEUR_VAN) return 0;                        // ruis in de achtergrond
+    const px = zacht && haarNabij[j] < 40 ? zacht : pixels;
+    // In een gewone ruimte (buiten het haar) telt een verschil in TINT zwaarder dan in helderheid:
+    // huid in de schaduw en vloer in de schaduw zijn even licht, maar huid is roder.
+    const tint = ruis && haarNabij[j] < 40;
+    const afstand = (jj) => {
+      const dr = px[j] - achter[jj], dg = px[j + 1] - achter[jj + 1], db = px[j + 2] - achter[jj + 2];
+      if (!tint) return Math.hypot(dr, dg, db);
+      const dl = 0.299 * dr + 0.587 * dg + 0.114 * db, da = dr - dg, dbb = (dr + dg) / 2 - db;
+      return Math.hypot(dl, TINT_WEGING * da, TINT_WEGING * dbb);
+    };
+    let d = afstand(j);
+    // In een gewone ruimte, waar het model achtergrond ziet: ook een paar rijen hoger en lager
+    // vergelijken (de randen van de plint lopen nooit precies recht, anders blijven daar dunne
+    // streepjes staan). NIET waar het model een persoon ziet: in een voet of sandaal gaf dat strepen.
+    const modelAchter = ruis && zeker[j] < 60;
+    if (modelAchter) for (const dy of [-6, -4, -2, 2, 4, 6]) {
+      const jj = j + dy * W * 4;
+      if (jj < 0 || jj >= achter.length) continue;
+      d = Math.min(d, afstand(jj));
+    }
+    const d0 = d;
+    // In een gewone ruimte telt een verschil tussen twee DONKERE kleuren zwaarder (donkere jeans of
+    // donker hout voor een zwarte plint: in getallen klein, voor het oog duidelijk anders).
+    let f = 1;
+    if (ruis && haarNabij[j] < 40) {
+      const l = Math.max(0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2], 0.299 * achter[j] + 0.587 * achter[j + 1] + 0.114 * achter[j + 2]);
+      f = Math.max(1, DONKER_WEGING / Math.max(30, l));
+      d *= f;
+    }
+    // ruis in de achtergrond (bij een schatting per rij: ook de korrel van bijv. vloerbedekking)
+    const kleurVan = ruis ? Math.max(KLEUR_VAN, 2.5 * ruis[j >> 2] * f) : KLEUR_VAN;
+    if (d < kleurVan) return 0;
+    // waar het model zeker is van achtergrond telt alleen een groot kleurverschil als persoon
+    if (ruis && zeker[j] < 3 && haarNabij[j] < 40 && d0 < ZEKER_ACHTER_MIN) return 0;
     // Diep binnen de persoon (ook midden in een haardos): dekkend, behalve waar de achtergrond echt
     // doorschijnt (gaten tussen dreadlocks/krullen). Zo worden grijze haren in zwart haar niet doorzichtig.
     if (diep[j] >= 245 && d >= DIEP_DEKKEND) return 255;
     // Schaduw op het studiodoek (bijv. van het haar): iets donkerder, maar dezelfde kleurtint als het
     // doek. Dat is achtergrond, geen persoon. Andersom ook: muur die rond de personen net wat meer licht
     // krijgt (flits) is lichter, maar dezelfde tint; anders blijven daar lichte vlekken staan.
-    if (d < Math.max(SCHADUW_MAX, LICHTER_MAX)) {
-      const bl = Math.hypot(achter[j], achter[j + 1], achter[j + 2]), cl = Math.hypot(pixels[j], pixels[j + 1], pixels[j + 2]);
-      const cos = (pixels[j] * achter[j] + pixels[j + 1] * achter[j + 1] + pixels[j + 2] * achter[j + 2]) / (bl * cl || 1);
-      if (cos > SCHADUW_TINT && (cl < bl ? d < SCHADUW_MAX : d < LICHTER_MAX)) return 0;
+    if (d0 < Math.max(SCHADUW_MAX, LICHTER_MAX) && (!ruis || modelAchter)) {
+      const bl = Math.hypot(achter[j], achter[j + 1], achter[j + 2]), cl = Math.hypot(px[j], px[j + 1], px[j + 2]);
+      const cos = (px[j] * achter[j] + px[j + 1] * achter[j + 1] + px[j + 2] * achter[j + 2]) / (bl * cl || 1);
+      if (cos > (ruis ? 0.998 : SCHADUW_TINT) && (cl < bl ? d0 < SCHADUW_MAX : d0 < LICHTER_MAX)) return 0;
     }
     // Hoeveel persoon? Afstand tot de achtergrond, gedeeld door die van dekkend haar hier (× DEKKEND,
     // net iets minder dan 1 zodat lichtere lokken in dekkend haar toch helemaal dekken). Een dun
@@ -439,8 +589,11 @@ async function maakMasker(beeld, pixels, gezichten, g) {
       const lokKleur = Math.max(KLEUR_TOT, (kernS[j] * 2 * 255) / kernT[j]);
       plaatselijk += (Math.min(plaatselijk, lokKleur) - plaatselijk) * lichtHaarFoto * (1 - kleding) * tussen(kernT[j], 10, 60);
     }
-    const vol = Math.max(KLEUR_TOT, factor * plaatselijk);
-    const a = (d - KLEUR_VAN) / vol;
+    // Foto in een gewone ruimte (achtergrond per rij): alles behalve haar krijgt een korte overgang.
+    // De maat van "dekkend" komt van zwart haar tegen een witte muur; tegen de vloer is het verschil
+    // altijd kleiner, en dan werden schoenen, voeten en een kruk half doorzichtig.
+    const vol = ruis && haarNabij[j] < 40 ? VOL_RUIMTE : Math.max(KLEUR_TOT, factor * plaatselijk);
+    const a = (d - kleurVan) / vol;
     return a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
   }
   return { alfa, gezicht, achter };

@@ -226,12 +226,15 @@ function huidStip(soort, d, voor, w, h, cx, cy, r, afname) {
 }
 
 // Reflectie in een brillenglas weg. Een reflectie is een glad, gekleurd laagje licht (vaak groenig,
-// blauwig of wit) BOVENOP de huid en het oog achter het glas. Rond de penseel liggen twee soorten
-// pixels: met reflectie (lichter en "koeler" dan huid: groen of blauw te hoog t.o.v. rood) en schone
-// huid (rood > groen > blauw). Het verschil tussen hun gemiddelden is de kleur van het laagje (R).
-// Per pixel wordt bepaald hoeveel van dat laagje erop ligt (projectie op R, licht vervaagd, 0..1) en
-// precies dat gaat eraf. Het oog, de wimpers en de huidstructuur eronder blijven zo staan; donkere
-// pixels (montuur, iris, wimpers) worden niet aangeraakt.
+// blauwig of wit) BOVENOP de huid en het oog achter het glas: pixel = eronder + α × R. Rond de penseel
+// liggen twee soorten pixels: met reflectie (groen of blauw ≥ rood) en schone huid (rood duidelijk
+// hoger). Het verschil tussen hun gemiddelden is de kleur van het laagje (R).
+// Per pixel geeft de projectie op R hoeveel laagje erop lijkt te liggen, maar daarin zit ook de
+// structuur van de huid en het oog eronder. Daarom wordt α de MEDIAAN over een klein vierkant: binnen
+// een reflectie overal hetzelfde (de structuur eronder blijft dus staan, geen egaal "censuurvlak"),
+// en aan de rand van de reflectie springt hij mee (geen omtrek). Nooit meer dan nodig om de kleur van
+// schone huid te bereiken (anders oranje). Donker (montuur, iris, wimpers) en heel licht (wit montuur,
+// lichtpuntje in het oog) blijven ongemoeid.
 function brilStip(d, voor, w, h, cx, cy, r, afname) {
   const pak = (x, y) => { x = Math.max(0, Math.min(w - 1, Math.round(x))); y = Math.max(0, Math.min(h - 1, Math.round(y))); return (y * w + x) * 4; };
   const koel = (j) => Math.max(voor[j + 1], voor[j + 2] + 8) - voor[j];   // > 0: groen/blauw boven rood
@@ -251,40 +254,57 @@ function brilStip(d, voor, w, h, cx, cy, r, afname) {
   const R = [0, 1, 2].map((c) => refl[c] - schoon[c]);
   const RR = R[0] * R[0] + R[1] * R[1] + R[2] * R[2];
   if (RR < 100) return;
-  // hoeveel laagje per pixel (0..1), licht vervaagd (het laagje is glad; de fijne details zijn huid/oog)
-  const A = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const j = i * 4;
-    if (helder(voor, j) < donker) continue;
-    const proj = ((voor[j] - schoon[0]) * R[0] + (voor[j + 1] - schoon[1]) * R[1] + (voor[j + 2] - schoon[2]) * R[2]) / RR;
-    A[i] = Math.max(0, Math.min(2.5, proj));   // felle plekken: meer dan het gemiddelde laagje
-  }
-  const As = doosVaag(A, w, h, Math.max(2, Math.round(r * 0.08)));
+  const rgSchoon = schoon[0] - schoon[1], rgR = R[1] - R[0];
+  // per pixel: hoeveel laagje (projectie), begrensd door wat nodig is om de huidkleur te bereiken;
+  // −1 = niet meetellen (donker of heel licht)
+  const BAKJES = 64, MAX_A = 2.5;
   const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
   const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+  const k = Math.max(3, Math.min(10, Math.round(r * 0.25)));
+  const bx0 = Math.max(0, x0 - k), bx1 = Math.min(w - 1, x1 + k), by0 = Math.max(0, y0 - k), by1 = Math.min(h - 1, y1 + k);
+  const bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
+  const A = new Int8Array(bw * bh).fill(-1), B = new Int8Array(bw * bh).fill(-1);
+  const lHuid = helder(schoon, 0), MAX_B = 80;
+  for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
+    const j = (y * w + x) * 4, l = helder(voor, j);
+    if (l < donker || l > 215) continue;
+    let a = ((voor[j] - schoon[0]) * R[0] + (voor[j + 1] - schoon[1]) * R[1] + (voor[j + 2] - schoon[2]) * R[2]) / RR;
+    if (rgR > 5) a = Math.min(a, (rgSchoon - (voor[j] - voor[j + 1])) / rgR);
+    a = Math.max(0, Math.min(MAX_A, a));
+    A[(y - by0) * bw + (x - bx0)] = Math.round(a / MAX_A * (BAKJES - 1));
+    // het witte deel van de reflectie: wat na de kleurcorrectie nog lichter is dan schone huid
+    if (a > 0.15) {
+      const lNa = l - a * (0.299 * R[0] + 0.587 * R[1] + 0.114 * R[2]);
+      B[(y - by0) * bw + (x - bx0)] = Math.round(Math.max(0, Math.min(MAX_B, lNa - lHuid)) / MAX_B * (BAKJES - 1));
+    }
+  }
+  const telling = new Int32Array(BAKJES);
+  const mediaanBak = (M, x, y) => {
+    telling.fill(0);
+    let n = 0;
+    for (let yy = Math.max(by0, y - k); yy <= Math.min(by1, y + k); yy++) {
+      const rij = (yy - by0) * bw;
+      for (let xx = Math.max(bx0, x - k); xx <= Math.min(bx1, x + k); xx++) {
+        const v = M[rij + xx - bx0];
+        if (v >= 0) { telling[v]++; n++; }
+      }
+    }
+    if (!n) return 0;
+    let rest = n >> 1, b = 0;
+    while (b < BAKJES - 1 && rest >= telling[b]) { rest -= telling[b]; b++; }
+    return b / (BAKJES - 1);
+  };
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const m = dekking(Math.hypot(x - cx, y - cy), r);
     if (m <= 0) continue;
-    const p = y * w + x, i = p * 4;
-    if (helder(voor, i) < donker) continue;
-    // alleen waar de kleur echt koeler is dan de huid (rood − groen kleiner dan bij schone huid): gewone,
-    // lichtere huid (neus) wordt niet roze; heel lichte pixels (wit montuur, lichtpuntje in het oog) blijven
-    const koeler = Math.min(1, Math.max(0, ((schoon[0] - schoon[1]) - (voor[i] - voor[i + 1]) - 4) / 14));
-    const nietWit = Math.min(1, Math.max(0, (215 - helder(voor, i)) / 20));
-    // vervaagd (glad laagje), maar aan de scherpe rand van een reflectie telt de pixel zelf (anders blijft
-    // er een omtrek staan)
-    let a = Math.min(Math.max(As[p], A[p] * 0.85), A[p] + 0.3) * afname * koeler * nietWit;
-    // nooit voorbij de huidkleur: niet meer weghalen dan nodig om de rood-groenverhouding van schone
-    // huid te bereiken (anders wordt het oranje)
-    if (R[1] - R[0] > 5) a = Math.min(a, Math.max(0, ((schoon[0] - schoon[1]) - (voor[i] - voor[i + 1])) / (R[1] - R[0])));
-    const isReflectie = Math.min(1, Math.min(As[p], A[p] + 0.3)) * afname * koeler * nietWit;
-    if (isReflectie <= 0) continue;
-    // daarna het extra LICHT van de reflectie voor een deel weg (naar de helderheid van schone huid)
-    const na = [0, 1, 2].map((c) => voor[i + c] - a * R[c]);
-    const lNa = 0.299 * na[0] + 0.587 * na[1] + 0.114 * na[2], lHuid = helder(schoon, 0);
-    const donkerder = lNa > lHuid ? Math.max(0.6, 1 - ((lNa - lHuid) / lNa) * 0.8 * isReflectie) : 1;
+    const i = (y * w + x) * 4;
+    if (A[(y - by0) * bw + (x - bx0)] < 0) continue;
+    // medianen van α (kleur) en β (wit licht) in het vierkant rond deze pixel
+    const a = mediaanBak(A, x, y) * MAX_A * afname;
+    if (a <= 0) continue;
+    const beta = a > 0.1 * afname ? mediaanBak(B, x, y) * MAX_B * afname : 0;
     for (let c = 0; c < 3; c++) {
-      const doelKleur = na[c] * donkerder;
+      const doelKleur = voor[i + c] - a * R[c] - beta;
       d[i + c] += (doelKleur - d[i + c]) * m * 0.5;
     }
   }
