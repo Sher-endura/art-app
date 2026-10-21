@@ -191,6 +191,58 @@ export const LANDEN = [
       },
     ],
   },
+  {
+    id: "cu",
+    naam: "Cuba",
+    documenten: [
+      {
+        id: "cu-paspoort",
+        naam: "Paspoort (nieuw of vernieuwen, via het consulaat)",
+        // Consulaat Cuba (MINREX): 4,5 × 4,5 cm, kleur, lichte achtergrond, recht van voren,
+        // gezicht en hoofd onbedekt, geen donkere bril. Hoofdmaat: niet officieel.
+        foto: { breedte: 45, hoogte: 45 },
+        hoofd: { min: 27, max: 33, doel: 30 },
+        hoofdMidden: 22,
+        achtergrond: ["licht"],
+        aanname: "Cuba geeft geen hoofdmaat: ART neemt 27–33 mm (vast 30 mm), kruin ca. 7 mm onder de bovenrand. Gezicht en hoofd onbedekt, geen donkere bril. Wit is het veiligst.",
+      },
+      {
+        id: "cu-re",
+        naam: "Residencia en el Exterior (RE)",
+        foto: { breedte: 45, hoogte: 45 },
+        hoofd: { min: 27, max: 33, doel: 30 },
+        hoofdMidden: 22,
+        achtergrond: ["licht"],
+        aanname: "Consulaat vraagt 4 foto's van 4,5 × 4,5 cm, verder geen eisen: ART gebruikt dezelfde maten als het paspoort.",
+      },
+    ],
+  },
+  {
+    id: "ht",
+    naam: "Haïti",
+    documenten: [
+      {
+        id: "ht-paspoort-35x45",
+        naam: "Paspoort — 35 × 45 mm (o.a. ambassades in Latijns-Amerika)",
+        // Ambassade Quito (gouv.ht): 2 recente foto's, witte achtergrond, 35 × 45 mm. Hoofdmaat: niet officieel.
+        foto: { breedte: 35, hoogte: 45 },
+        hoofd: { min: 32, max: 36, doel: 34 },
+        hoofdMidden: 22.5,
+        achtergrond: ["wit"],
+        aanname: "Het formaat verschilt per consulaat: vraag de klant welk formaat zijn of haar consulaat wil. Hoofdmaat niet officieel (ART neemt 32–36 mm).",
+      },
+      {
+        id: "ht-paspoort-2x2",
+        naam: "Paspoort — 5 × 5 cm / 2 × 2 inch (consulaten in de VS)",
+        // Consulaat-generaal Miami (gouv.ht): 2 foto's 2 × 2 inch, witte achtergrond. Hoofdmaat: niet officieel.
+        foto: { breedte: 51, hoogte: 51 },
+        hoofd: { min: 25, max: 35, doel: 30 },
+        hoofdMidden: 21.5,
+        achtergrond: ["wit"],
+        aanname: "Het formaat verschilt per consulaat: vraag de klant welk formaat zijn of haar consulaat wil. Hoofdmaat niet officieel (ART neemt de Amerikaanse maat, 25–35 mm).",
+      },
+    ],
+  },
 ];
 
 export function zoekDocument(id) {
