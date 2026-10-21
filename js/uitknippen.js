@@ -220,6 +220,7 @@ const DREMPEL_DEKKEND = 110;   // afstand waarboven een (verkleind) pixel als de
 const HAAR_ONDERGRENS = 0.85;  // plaatselijke maatstaf nooit lager dan dit deel van die van al het haar
 const DIEP_DEKKEND = 65;       // diep binnenin: vanaf deze afstand tot het doek altijd dekkend
 const SCHADUW_MAX = 45, SCHADUW_TINT = 0.9993; // schaduw op het doek: afstand < 45 en dezelfde kleurtint
+const LICHT_HAAR_FOTO = [255, 280]; // mediaan haar–doek: daaronder licht haar (lok-regel aan), daarboven uit
 const LICHT_HAAR = 230;        // gemiddelde afstand haar–doek waaronder het haar "licht" is (grijs/wit);
                                // gemeten: grijs 130–190, dreadlocks 230–260, zwart haar 300+
 async function maakMasker(beeld, pixels, gezichten, g) {
@@ -265,6 +266,9 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   for (let i = 0; i < mw * mh; i++) if (ruw.haar[i] > 0.8 && ruw.data[i] > 0.8) haarAfstanden.push(afstandKlein[i]);
   haarAfstanden.sort((a, b) => a - b);
   const haarMaat = haarAfstanden.length > 50 ? haarAfstanden[Math.floor(haarAfstanden.length * 0.7)] : 0;
+  // Is het haar op deze foto vooral licht (grijs, bruin, grijsbruine dreadlocks) of zwart/donker?
+  // Mediaan van de afstand haar–doek: gemeten zwart 299–327, grijsbruine dreadlocks 242.
+  const haarMediaan = haarAfstanden.length > 50 ? haarAfstanden[haarAfstanden.length >> 1] : 999;
   // Dichtheid: welk deel van de omgeving is dekkend haar/kleding? In een dichte massa (dreadlocks,
   // binnenkant van een haardos) is een lichtere vezel dekkend; waar het haar dun is (losse haartjes,
   // buitenrand) is een tussenkleur een half doorzichtig haartje.
@@ -319,6 +323,52 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   }
   dctx.putImageData(doekId, 0, 0);
   const openDoek = vervaag(doekKaart, 12).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  // Binnenkant van een dreadlock/lok: grijsbruin haar lijkt qua kleur op het doek in de schaduw, en de
+  // maat voor "dekkend haar" komt van de donkerste vezels; daardoor telde een dread maar half
+  // (doorzichtig, vaag). Haar heeft STRUCTUUR (vezels), het doek is glad: een pixel is zeker haar als hij
+  // duidelijk afwijkt van het doek én structuur heeft (of heel ver van het doek ligt). Ligt een pixel
+  // middenin zulke pixels (± 6 px rondom bijna alles haar) EN heeft hij ongeveer de kleur van die
+  // pixels (≥ 70 % van hun gemiddelde afstand tot het doek), dan is hij dekkend: een dread is massief.
+  // Een randpixel van zwart haar is veel lichter dan het zwarte haar ernaast (half doorzichtig) en
+  // blijft dus zacht; de vezelrand van een dread en echte gaten ook.
+  const helderKaart = canvas(W, H), hctx = helderKaart.getContext("2d", { willReadFrequently: true });
+  const hId = hctx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4, l = 0.299 * pixels[j] + 0.587 * pixels[j + 1] + 0.114 * pixels[j + 2];
+    hId.data[j] = hId.data[j + 1] = hId.data[j + 2] = l; hId.data[j + 3] = 255;
+  }
+  hctx.putImageData(hId, 0, 0);
+  const helderVaag = vervaag(helderKaart, 2).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  const ruwKaart = canvas(W, H), rctx = ruwKaart.getContext("2d", { willReadFrequently: true });
+  const rId = rctx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4;
+    rId.data[j] = rId.data[j + 1] = rId.data[j + 2] = Math.min(255, Math.abs(hId.data[j] - helderVaag[j]) * 16); rId.data[j + 3] = 255;
+  }
+  rctx.putImageData(rId, 0, 0);
+  const structuur = vervaag(ruwKaart, 4).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data; // ÷16 = gem. afwijking
+  const vezelKaart = canvas(W, H), vctx = vezelKaart.getContext("2d", { willReadFrequently: true });
+  const vId = vctx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4;
+    const d = Math.hypot(pixels[j] - achter[j], pixels[j + 1] - achter[j + 1], pixels[j + 2] - achter[j + 2]);
+    const zekerHaar = d >= 110 || (d >= 35 && structuur[j] >= 4 * 16);
+    vId.data[j] = vId.data[j + 1] = vId.data[j + 2] = zekerHaar ? 255 : 0; vId.data[j + 3] = 255;
+  }
+  vctx.putImageData(vId, 0, 0);
+  const binnenLok = vervaag(vezelKaart, 6).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  // gemiddelde afstand tot het doek van de zeker-haar-pixels rondom (± 6 px)
+  const lokSom = canvas(W, H), lsId = lokSom.getContext("2d").createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4;
+    const d = Math.hypot(pixels[j] - achter[j], pixels[j + 1] - achter[j + 1], pixels[j + 2] - achter[j + 2]);
+    lsId.data[j] = vId.data[j] ? Math.min(255, d / 2) : 0; lsId.data[j + 3] = 255;
+  }
+  lokSom.getContext("2d").putImageData(lsId, 0, 0);
+  const lokS = vervaag(lokSom, 6).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  // Alleen bij een foto met licht haar: bij zwart haar ligt langs de rand een band halfbedekte pixels
+  // die onderling op elkaar lijken; die moeten zacht blijven (anders een lichte rand).
+  const lichtHaarFoto = 1 - Math.max(0, Math.min(1, (haarMediaan - LICHT_HAAR_FOTO[0]) / (LICHT_HAAR_FOTO[1] - LICHT_HAAR_FOTO[0])));
   for (let i = 0; i < W * H; i++) {
     if (gezicht[i]) { alfa[i] = 255; continue; }
     const j = i * 4;
@@ -329,7 +379,17 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     // steun van de modelvorm bij licht haar (zie haarGem); 0 bij donker haar en buiten de haardos
     const steun = Math.round(255 * tussen(LICHT_HAAR - haarGem[j] * 2, 0, 60) * tussen(haar[j], 60, 160)
       * tussen(zeker[j], 120, 220) * tussen(diep[j], 100, 200) * (1 - tussen(openDoek[j], 60, 120)));
-    alfa[i] = Math.max(steun, kleurAlfa(j));
+    const kleur = kleurAlfa(j);
+    let lok = 0;
+    if (lichtHaarFoto > 0 && binnenLok[j] > 225 && kleur < 255) {
+      const afstand = Math.hypot(pixels[j] - achter[j], pixels[j + 1] - achter[j + 1], pixels[j + 2] - achter[j + 2]);
+      const lokGem = (lokS[j] * 2 * 255) / binnenLok[j];
+      lok = Math.round((255 - kleur) * tussen(binnenLok[j], 225, 250) * tussen(mogelijk[j], 60, 160)
+        * tussen(afstand, 35, 55) * tussen(afstand / Math.max(1, lokGem), 0.55, 0.75) * lichtHaarFoto
+        // donkerder dan het doek (lichte plekjes doek in een gat blijven open)
+        * tussen(0.299 * (achter[j] - pixels[j]) + 0.587 * (achter[j + 1] - pixels[j + 1]) + 0.114 * (achter[j + 2] - pixels[j + 2]), 15, 35));
+    }
+    alfa[i] = Math.max(steun, kleur + lok);
   }
   function kleurAlfa(j) {
     if (mogelijk[j] < 3) return 0;
