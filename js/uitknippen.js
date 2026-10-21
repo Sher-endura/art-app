@@ -220,6 +220,8 @@ const DREMPEL_DEKKEND = 110;   // afstand waarboven een (verkleind) pixel als de
 const HAAR_ONDERGRENS = 0.85;  // plaatselijke maatstaf nooit lager dan dit deel van die van al het haar
 const DIEP_DEKKEND = 65;       // diep binnenin: vanaf deze afstand tot het doek altijd dekkend
 const SCHADUW_MAX = 45, SCHADUW_TINT = 0.9993; // schaduw op het doek: afstand < 45 en dezelfde kleurtint
+const LICHT_HAAR = 230;        // gemiddelde afstand haar–doek waaronder het haar "licht" is (grijs/wit);
+                               // gemeten: grijs 130–190, dreadlocks 230–260, zwart haar 300+
 async function maakMasker(beeld, pixels, gezichten, g) {
   const W = beeld.width, H = beeld.height;
   const ruw = await ruwMasker(beeld, g);
@@ -269,6 +271,12 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   const dicht = new Float32Array(mw * mh);
   for (let i = 0; i < mw * mh; i++) dicht[i] = dekkend(i) ? 1 : 0;
   const dichtheid = naarVolleMaat(vervaag(grijsCanvas(dicht, mw, mh), 3), W, H, g);
+  // Licht haar (grijs, wit, blond) op een licht doek: de kleur zegt dan weinig, want een wit haartje
+  // lijkt op het doek. Hoe licht is het haar hier gemiddeld (afstand tot het doek, ALLE haarpixels)?
+  // Waar het haar licht is, steunt ART op de vorm van het model: binnen de haardos dekkend, met een
+  // zachte overgang naar de rand (geen doorzichtig waas, geen harde boog). Donker haar merkt hier niets
+  // van: daar zijn gaten tussen krullen/dreadlocks echt doorzichtig.
+  const haarGem = naarVolleMaat(gemiddeldeKaart(afstandKlein, mw, mh, (i) => ruw.data[i] > 0.7 && ruw.haar[i] > 0.5, [10, 30, 100]), W, H, g);
 
   // Gezichtsomtrek tekenen: alles daarbinnen is gegarandeerd persoon.
   const gezicht = new Uint8Array(W * H);
@@ -290,6 +298,27 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   }
 
   const alfa = new Uint8Array(W * H);
+  const tussen = (v, a, b) => Math.max(0, Math.min(1, (v - a) / (b - a)));
+  // Open doek: welk deel van de directe omgeving (± 12 px) heeft precies de kleur van het doek? Tussen
+  // grijze krulletjes is dat weinig (kleine plekjes); in een echt gat tussen dreadlocks bijna alles.
+  // Alleen de kleine plekjes krijgen steun van de modelvorm, echte gaten blijven doorzichtig.
+  const doekKaart = canvas(W, H), dctx = doekKaart.getContext("2d", { willReadFrequently: true });
+  const doekId = dctx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4;
+    const d = Math.hypot(pixels[j] - achter[j], pixels[j + 1] - achter[j + 1], pixels[j + 2] - achter[j + 2]);
+    // doek, ook in de schaduw (donkerder maar dezelfde kleurtint, bijv. tussen dreadlocks bij het hoofd)
+    let doek = d < 22;
+    if (!doek && d < 90) {
+      const bl = Math.hypot(achter[j], achter[j + 1], achter[j + 2]), cl = Math.hypot(pixels[j], pixels[j + 1], pixels[j + 2]);
+      const cos = (pixels[j] * achter[j] + pixels[j + 1] * achter[j + 1] + pixels[j + 2] * achter[j + 2]) / (bl * cl || 1);
+      doek = cl < bl && cos > 0.998;
+    }
+    doekId.data[j] = doekId.data[j + 1] = doekId.data[j + 2] = doek ? 255 : 0;
+    doekId.data[j + 3] = 255;
+  }
+  dctx.putImageData(doekId, 0, 0);
+  const openDoek = vervaag(doekKaart, 12).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
   for (let i = 0; i < W * H; i++) {
     if (gezicht[i]) { alfa[i] = 255; continue; }
     const j = i * 4;
@@ -297,19 +326,25 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     // Kleding/huid volgens het model, binnen de vorm van de persoon: geen gaten (witte stukjes in een
     // patroon zijn stof, geen achtergrond).
     if (zeker[j] >= 200 && kledingKaart[j] >= 170 && haar[j] < 60) { alfa[i] = 255; continue; }
-    if (mogelijk[j] < 3) { alfa[i] = 0; continue; }
+    // steun van de modelvorm bij licht haar (zie haarGem); 0 bij donker haar en buiten de haardos
+    const steun = Math.round(255 * tussen(LICHT_HAAR - haarGem[j] * 2, 0, 60) * tussen(haar[j], 60, 160)
+      * tussen(zeker[j], 120, 220) * tussen(diep[j], 100, 200) * (1 - tussen(openDoek[j], 60, 120)));
+    alfa[i] = Math.max(steun, kleurAlfa(j));
+  }
+  function kleurAlfa(j) {
+    if (mogelijk[j] < 3) return 0;
     const vr = pixels[j] - achter[j], vg = pixels[j + 1] - achter[j + 1], vb = pixels[j + 2] - achter[j + 2];
     const d = Math.hypot(vr, vg, vb);
-    if (d < KLEUR_VAN) { alfa[i] = 0; continue; }       // ruis in de achtergrond
+    if (d < KLEUR_VAN) return 0;                        // ruis in de achtergrond
     // Diep binnen de persoon (ook midden in een haardos): dekkend, behalve waar de achtergrond echt
     // doorschijnt (gaten tussen dreadlocks/krullen). Zo worden grijze haren in zwart haar niet doorzichtig.
-    if (diep[j] >= 245 && d >= DIEP_DEKKEND) { alfa[i] = 255; continue; }
+    if (diep[j] >= 245 && d >= DIEP_DEKKEND) return 255;
     // Schaduw op het studiodoek (bijv. van het haar): iets donkerder, maar dezelfde kleurtint als het
     // doek. Dat is achtergrond, geen persoon.
     if (d < SCHADUW_MAX) {
       const bl = Math.hypot(achter[j], achter[j + 1], achter[j + 2]), cl = Math.hypot(pixels[j], pixels[j + 1], pixels[j + 2]);
       const cos = (pixels[j] * achter[j] + pixels[j + 1] * achter[j + 1] + pixels[j + 2] * achter[j + 2]) / (bl * cl || 1);
-      if (cl < bl && cos > SCHADUW_TINT) { alfa[i] = 0; continue; }
+      if (cl < bl && cos > SCHADUW_TINT) return 0;
     }
     // Hoeveel persoon? Afstand tot de achtergrond, gedeeld door die van dekkend haar hier (× DEKKEND,
     // net iets minder dan 1 zodat lichtere lokken in dekkend haar toch helemaal dekken). Een dun
@@ -324,7 +359,7 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     const plaatselijk = Math.max(dekking[j] * 2, (1 - kleding) * HAAR_ONDERGRENS * haarMaat);
     const vol = Math.max(KLEUR_TOT, factor * plaatselijk);
     const a = (d - KLEUR_VAN) / vol;
-    alfa[i] = a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
+    return a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
   }
   return { alfa, gezicht, achter };
 }
