@@ -23,7 +23,7 @@ export async function maakGezichtsherkenner(aantalGezichten = 1) {
 
 export async function maakPersoonSegmenter() {
   return ImageSegmenter.createFromOptions(await fileset(), {
-    baseOptions: { modelAssetPath: model("selfie_segmenter.tflite"), delegate: "CPU" },
+    baseOptions: { modelAssetPath: model("selfie_multiclass_256x256.tflite"), delegate: "CPU" },
     runningMode: "IMAGE",
     outputCategoryMask: false,
     outputConfidenceMasks: true,

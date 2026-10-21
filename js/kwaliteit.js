@@ -12,7 +12,9 @@ export function kleurNaam([r, g, b]) {
   if (L < 150) return "te donker";
   if (L >= 225 && verzadiging < 0.06) return "wit";
   if (b > r + 8 && b >= g - 4) return "lichtblauw";
-  if (r > b + 8 && L >= 190 && verzadiging < 0.2) return "creme";
+  // Crème = duidelijk geel/warm. Het licht warme grijs van de winkel (± 225-220-208, verzadiging 0,07)
+  // telt als lichtgrijs.
+  if (r > b + 12 && L >= 190 && verzadiging >= 0.09 && verzadiging < 0.2) return "creme";
   if (verzadiging < 0.08) return "lichtgrijs";
   return "gekleurd";
 }

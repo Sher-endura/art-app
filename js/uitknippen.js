@@ -29,7 +29,10 @@ function canvas(w, h) {
   return c;
 }
 
-// Ruwe persoonskans per pixel (0..1) op een verkleinde versie van (een deel van) het beeld.
+// Ruwe kansen per pixel (0..1) op een verkleinde versie van (een deel van) het beeld:
+// persoon (= niet-achtergrond) en haar apart. Model "selfie multiclass": 0 achtergrond, 1 haar,
+// 2 huid lichaam, 3 huid gezicht, 4 kleding, 5 overig. Geeft ook de verkleinde versie terug
+// (voor het schatten van de kleuren).
 async function ruwMasker(beeld, g) {
   const s = await laadSegmenter();
   const f = Math.min(1, MODEL_LANG / Math.max(g.w, g.h));
@@ -37,44 +40,218 @@ async function ruwMasker(beeld, g) {
   klein.getContext("2d").drawImage(beeld, g.x, g.y, g.w, g.h, 0, 0, klein.width, klein.height);
   const res = s.segment(klein);
   const maskers = res.confidenceMasks;
-  const m = maskers[maskers.length - 1]; // laatste = persoon
-  const uit = { w: m.width, h: m.height, data: Float32Array.from(m.getAsFloat32Array()) };
+  // Dit model geeft nooit precies 0 of 1 (achtergrond ± 0,08 "persoon", haar-ruis ± 0,02):
+  // omrekenen naar een echte schaal van 0 tot 1.
+  const schaal = (v, laag, hoog) => Math.max(0, Math.min(1, (v - laag) / (hoog - laag)));
+  const achtergrond = maskers[0].getAsFloat32Array(), haarRuw = maskers[1].getAsFloat32Array();
+  const data = new Float32Array(achtergrond.length), haar = new Float32Array(achtergrond.length);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = schaal(1 - achtergrond[i], 0.12, 0.9);
+    haar[i] = schaal(haarRuw[i], 0.05, 0.9);
+  }
+  const uit = { w: maskers[0].width, h: maskers[0].height, data, haar, klein };
   res.close?.();
   return uit;
 }
 
-// Masker (0..255) op volle grootte: model voor de grove vorm, kleurverschil met de achtergrond
-// voor de fijne rand, en de gezichtsomtrek altijd 255.
+// Grijswaarden (0..1) als canvas, zodat de browser kan vervagen en vergroten.
+function grijsCanvas(data, w, h) {
+  const c = canvas(w, h);
+  const id = c.getContext("2d").createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const v = Math.round(Math.max(0, Math.min(1, data[i])) * 255);
+    id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = v;
+    id.data[i * 4 + 3] = 255;
+  }
+  c.getContext("2d").putImageData(id, 0, 0);
+  return c;
+}
+// Vervagen zonder donkere rand langs de beeldrand: eerst de randpixels naar buiten doortrekken.
+function vervaag(bron, px) {
+  const w = bron.width, h = bron.height, p = Math.ceil(px * 3);
+  const groot = canvas(w + 2 * p, h + 2 * p), gx = groot.getContext("2d");
+  gx.drawImage(bron, p, p);
+  gx.drawImage(bron, 0, 0, w, 1, p, 0, w, p);          // boven
+  gx.drawImage(bron, 0, h - 1, w, 1, p, p + h, w, p);  // onder
+  gx.drawImage(groot, p, 0, 1, h + 2 * p, 0, 0, p, h + 2 * p);          // links (incl. hoeken)
+  gx.drawImage(groot, p + w - 1, 0, 1, h + 2 * p, p + w, 0, p, h + 2 * p); // rechts
+  const c = canvas(w, h), ctx = c.getContext("2d");
+  ctx.filter = `blur(${px}px)`;
+  ctx.drawImage(groot, -p, -p);
+  return c;
+}
+// Canvas vergroten naar het gebied g op volle maat en de pixels teruggeven.
+function naarVolleMaat(bron, W, H, g, vul = "#000") {
+  const c = canvas(W, H);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = vul;
+  ctx.fillRect(0, 0, W, H);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bron, g.x, g.y, g.w, g.h);
+  return ctx.getImageData(0, 0, W, H).data;
+}
+
+// Een kleur PER PLEK schatten: gemiddelde van de pixels in de buurt die zeker bij die soort horen
+// (zeker achtergrond, of zeker persoon), ook doorgetrokken over de plekken waar die soort niet is.
+// Zo kent ART bij elke rand zowel de oude achtergrondkleur (studio-achtergronden hebben een verloop)
+// als de kleur van het haar/de kleding vlak ernaast.
+function kleurSchatting(klein, w, h, hoort, stralen) {
+  const src = klein.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const p = canvas(w, h), q = canvas(w, h);
+  const pd = p.getContext("2d").createImageData(w, h), qd = q.getContext("2d").createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const zeker = hoort(i) ? 1 : 0;
+    pd.data[i * 4] = src[i * 4] * zeker; pd.data[i * 4 + 1] = src[i * 4 + 1] * zeker; pd.data[i * 4 + 2] = src[i * 4 + 2] * zeker;
+    qd.data[i * 4] = qd.data[i * 4 + 1] = qd.data[i * 4 + 2] = zeker * 255;
+    pd.data[i * 4 + 3] = qd.data[i * 4 + 3] = 255;
+  }
+  p.getContext("2d").putImageData(pd, 0, 0);
+  q.getContext("2d").putImageData(qd, 0, 0);
+  const lagen = stralen.map((r) => [
+    vervaag(p, r).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data,
+    vervaag(q, r).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data,
+  ]);
+  const uit = canvas(w, h);
+  const ud = uit.getContext("2d").createImageData(w, h);
+  let gr = 0, gg = 0, gb = 0, gn = 0;
+  for (let i = 0; i < w * h; i++) if (hoort(i)) { gr += src[i * 4]; gg += src[i * 4 + 1]; gb += src[i * 4 + 2]; gn++; }
+  const gem = gn ? [gr / gn, gg / gn, gb / gn] : [255, 255, 255];
+  for (let i = 0; i < w * h; i++) {
+    let k = null;
+    for (const [pp, qq] of lagen) {
+      const n = qq[i * 4];
+      if (n >= 8) { k = [0, 1, 2].map((c) => (pp[i * 4 + c] * 255) / n); break; }
+    }
+    k = k || gem;
+    ud.data[i * 4] = k[0]; ud.data[i * 4 + 1] = k[1]; ud.data[i * 4 + 2] = k[2]; ud.data[i * 4 + 3] = 255;
+  }
+  uit.getContext("2d").putImageData(ud, 0, 0);
+  return uit;
+}
+
+// Gemiddelde van een getal per plek (0..510), alleen over pixels die "horen"; uitkomst ÷ 2 in een
+// grijs canvas (0..255). Zelfde aanpak als kleurSchatting.
+function gemiddeldeKaart(waarden, w, h, hoort, stralen) {
+  const p = canvas(w, h), q = canvas(w, h);
+  const pd = p.getContext("2d").createImageData(w, h), qd = q.getContext("2d").createImageData(w, h);
+  let som = 0, n = 0;
+  for (let i = 0; i < w * h; i++) {
+    const z = hoort(i) ? 1 : 0;
+    pd.data[i * 4] = Math.min(255, waarden[i] / 2) * z; qd.data[i * 4] = z * 255;
+    pd.data[i * 4 + 3] = qd.data[i * 4 + 3] = 255;
+    if (z) { som += waarden[i] / 2; n++; }
+  }
+  p.getContext("2d").putImageData(pd, 0, 0);
+  q.getContext("2d").putImageData(qd, 0, 0);
+  const lagen = stralen.map((r) => [
+    vervaag(p, r).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data,
+    vervaag(q, r).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data,
+  ]);
+  const gem = n ? som / n : 128;
+  const uit = canvas(w, h), ud = uit.getContext("2d").createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    let v = gem;
+    for (const [pp, qq] of lagen) if (qq[i * 4] >= 8) { v = (pp[i * 4] * 255) / qq[i * 4]; break; }
+    ud.data[i * 4] = ud.data[i * 4 + 1] = ud.data[i * 4 + 2] = v; ud.data[i * 4 + 3] = 255;
+  }
+  uit.getContext("2d").putImageData(ud, 0, 0);
+  return uit;
+}
+
+// De oude studio-achtergrond als één vloeiend verloop (polynoom van de 3e graad in x en y, per kleur),
+// gepast op de pixels die zeker achtergrond zijn. Een studiodoek heeft geen vlekken of randen, dus dit
+// klopt ook achter het haar, waar de achtergrond zelf niet te zien is. Eén keer uitschieters weglaten.
+function achtergrondVerloop(klein, kans, w, h) {
+  const src = klein.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const termen = (u, v) => [1, u, v, u * u, u * v, v * v, u * u * u, u * u * v, u * v * v, v * v * v];
+  let punten = [];
+  const stap = Math.max(1, Math.round(Math.sqrt((w * h) / 6000)));
+  for (let y = 0; y < h; y += stap) for (let x = 0; x < w; x += stap) {
+    const i = y * w + x;
+    if (kans[i] < 0.03) punten.push([termen(x / w, y / h), src[i * 4], src[i * 4 + 1], src[i * 4 + 2]]);
+  }
+  if (punten.length < 50) return null;
+  const pas = (pts) => [1, 2, 3].map((k) => {
+    // normaalvergelijkingen (A^T A) c = A^T b, opgelost met Gauss-eliminatie
+    const n = 10, M = Array.from({ length: n }, () => new Float64Array(n + 1));
+    for (const p of pts) { const a = p[0]; for (let r2 = 0; r2 < n; r2++) { for (let c = 0; c < n; c++) M[r2][c] += a[r2] * a[c]; M[r2][n] += a[r2] * p[k]; } }
+    for (let r2 = 0; r2 < n; r2++) M[r2][r2] += 1e-6;
+    for (let c = 0; c < n; c++) {
+      let best = c; for (let r2 = c + 1; r2 < n; r2++) if (Math.abs(M[r2][c]) > Math.abs(M[best][c])) best = r2;
+      [M[c], M[best]] = [M[best], M[c]];
+      for (let r2 = 0; r2 < n; r2++) if (r2 !== c) { const f = M[r2][c] / M[c][c]; for (let c2 = c; c2 <= n; c2++) M[r2][c2] -= f * M[c][c2]; }
+    }
+    return M.map((rij, i) => rij[n] / rij[i]);
+  });
+  const waarde = (co, a) => co.reduce((s, c, i) => s + c * a[i], 0);
+  let co = pas(punten);
+  const fout = punten.map((p) => Math.hypot(...[0, 1, 2].map((k) => waarde(co[k], p[0]) - p[k + 1])));
+  const grens = 2.5 * Math.sqrt(fout.reduce((s, f) => s + f * f, 0) / fout.length) + 2;
+  punten = punten.filter((_, i) => fout[i] <= grens);
+  co = pas(punten);
+  const c = canvas(w, h), id = c.getContext("2d").createImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const a = termen(x / w, y / h), i = (y * w + x) * 4;
+    id.data[i] = waarde(co[0], a); id.data[i + 1] = waarde(co[1], a); id.data[i + 2] = waarde(co[2], a); id.data[i + 3] = 255;
+  }
+  c.getContext("2d").putImageData(id, 0, 0);
+  return c;
+}
+
+// Masker (0..255) op volle grootte.
+//  - Het model geeft de grove vorm: binnenin = zeker persoon, ver erbuiten = zeker achtergrond.
+//  - In de rand (en ruim daarbuiten, voor losse haartjes) bepaalt het kleurverschil met de oude
+//    achtergrond op die plek hoeveel persoon een pixel is. Op een effen studio-achtergrond is dat veel
+//    nauwkeuriger dan het model, en het geeft geen harde hoeken of lichte randjes.
+//  - Binnen de gezichtsomtrek altijd 255.
 // g = het deel van het beeld waar de persoon staat (bij een pasfoto: het kader plus marge); daarbuiten
 // is alles achtergrond. Zo werkt het model ook goed als de persoon klein in een groot beeld staat.
+// Afgesteld op 3 winkelfoto's van 21 okt 2026 (lang zwart haar met losse haartjes, grijze dreadlocks,
+// opgestoken haar met veel losse haartjes) op het licht warmgrijze doek van de winkel.
+const KLEUR_VAN = 14;          // kleurafstand tot het doek waaronder het ruis is (achtergrond)
+const KLEUR_TOT = 55;          // kleinste afstand die nog als "helemaal bedekt" kan gelden
+const DEKKEND = 0.95;          // deel van de afstand van dekkend haar dat al helemaal bedekt is: dun haar
+const DEKKEND_KLEDING = 0.75;  // idem voor de rand van kleding en huid
+const DEKKEND_DICHT = 0.7;     // idem midden in een dichte haarmassa (dreadlocks, krullen)
+const DREMPEL_DEKKEND = 110;   // afstand waarboven een (verkleind) pixel als dekkend telt
+const SCHADUW_MAX = 45, SCHADUW_TINT = 0.9993; // schaduw op het doek: afstand < 45 en dezelfde kleurtint
 async function maakMasker(beeld, pixels, gezichten, g) {
   const W = beeld.width, H = beeld.height;
   const ruw = await ruwMasker(beeld, g);
-
-  // Ruw masker vergroten naar volle maat (zachte vergroting via canvas).
-  const rc = canvas(ruw.w, ruw.h);
-  const rid = rc.getContext("2d").createImageData(ruw.w, ruw.h);
-  for (let i = 0; i < ruw.data.length; i++) {
-    const v = Math.round(ruw.data[i] * 255);
-    rid.data[i * 4] = rid.data[i * 4 + 1] = rid.data[i * 4 + 2] = v;
-    rid.data[i * 4 + 3] = 255;
-  }
-  rc.getContext("2d").putImageData(rid, 0, 0);
-  const groot = canvas(W, H);
-  const gctx = groot.getContext("2d", { willReadFrequently: true });
-  gctx.imageSmoothingQuality = "high";
-  gctx.fillStyle = "#000";
-  gctx.fillRect(0, 0, W, H);
-  gctx.drawImage(rc, g.x, g.y, g.w, g.h);
-  const kans = gctx.getImageData(0, 0, W, H).data; // kanaal R = kans × 255
-
-  // Achtergrondkleur: gemiddelde van pixels die zeker achtergrond zijn.
-  let n = 0, br = 0, bg = 0, bb = 0;
-  for (let y = g.y; y < g.y + g.h; y += 3) for (let x = g.x; x < g.x + g.w; x += 3) {
-    const i = y * W + x;
-    if (kans[i * 4] < 10) { br += pixels[i * 4]; bg += pixels[i * 4 + 1]; bb += pixels[i * 4 + 2]; n++; }
-  }
-  const achter = n ? [br / n, bg / n, bb / n] : [255, 255, 255];
+  const M = grijsCanvas(ruw.data, ruw.w, ruw.h);
+  // Zeker persoon: model hoog, ook na een beetje vervagen (dus niet vlak bij de rand).
+  const zeker = naarVolleMaat(vervaag(M, 4), W, H, g);
+  // Diep binnenin (ver van elke rand): daar blijft huid/kleding altijd onaangeroerd, ook als de kleur
+  // op de achtergrond lijkt (wit overhemd voor een wit doek).
+  const diep = naarVolleMaat(vervaag(M, 14), W, H, g);
+  // Mogelijk persoon: tot ± 4 % van het gebied buiten de modelrand (losse haartjes).
+  const mogelijk = naarVolleMaat(vervaag(M, Math.max(6, 0.04 * ruw.w)), W, H, g);
+  // Haar: daarbinnen kunnen gaten zitten (krullen, dreadlocks, losse plukken) waar de oude
+  // achtergrond doorheen schijnt. Daar beslist altijd de kleur, ook "midden in" de persoon.
+  const haarKaart = grijsCanvas(ruw.haar, ruw.w, ruw.h);
+  const haar = naarVolleMaat(vervaag(haarKaart, 5), W, H, g);
+  // Ruim rond het haar: daar kunnen losse haartjes over kleding of huid vallen.
+  const haarNabij = naarVolleMaat(vervaag(haarKaart, 14), W, H, g);
+  const { w: mw, h: mh } = ruw;
+  const verloop = achtergrondVerloop(ruw.klein, ruw.data, mw, mh)
+    || kleurSchatting(ruw.klein, mw, mh, (i) => ruw.data[i] < 0.05, [12, 40, 120]);
+  const achter = naarVolleMaat(verloop, W, H, g, "#fff");
+  // Hoe ver ligt DEKKEND haar/kleding hier van de achtergrond af? Per plek gemeten aan pixels die
+  // zeker persoon zijn en duidelijk anders dan de achtergrond (niet de gaten, niet de randjes).
+  // Een randpixel dat maar half zo ver van de achtergrond ligt, is half bedekt.
+  const ks = ruw.klein.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, mw, mh).data;
+  const vs = verloop.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, mw, mh).data;
+  const afstandKlein = new Float32Array(mw * mh);
+  for (let i = 0; i < mw * mh; i++)
+    afstandKlein[i] = Math.hypot(ks[i * 4] - vs[i * 4], ks[i * 4 + 1] - vs[i * 4 + 1], ks[i * 4 + 2] - vs[i * 4 + 2]);
+  const dekkend = (i) => ruw.data[i] > 0.5 && afstandKlein[i] > DREMPEL_DEKKEND;
+  const dekking = naarVolleMaat(gemiddeldeKaart(afstandKlein, mw, mh, dekkend, [3, 10, 30, 100]), W, H, g);
+  // Dichtheid: welk deel van de omgeving is dekkend haar/kleding? In een dichte massa (dreadlocks,
+  // binnenkant van een haardos) is een lichtere vezel dekkend; waar het haar dun is (losse haartjes,
+  // buitenrand) is een tussenkleur een half doorzichtig haartje.
+  const dicht = new Float32Array(mw * mh);
+  for (let i = 0; i < mw * mh; i++) dicht[i] = dekkend(i) ? 1 : 0;
+  const dichtheid = naarVolleMaat(vervaag(grijsCanvas(dicht, mw, mh), 3), W, H, g);
 
   // Gezichtsomtrek tekenen: alles daarbinnen is gegarandeerd persoon.
   const gezicht = new Uint8Array(W * H);
@@ -98,14 +275,34 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   const alfa = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) {
     if (gezicht[i]) { alfa[i] = 255; continue; }
-    const k = kans[i * 4];
-    if (k >= 230) { alfa[i] = 255; continue; }
-    if (k <= 25) { alfa[i] = 0; continue; }
-    // Twijfelrand: hoe meer de kleur van de achtergrond afwijkt, hoe meer persoon.
-    const d = Math.hypot(pixels[i * 4] - achter[0], pixels[i * 4 + 1] - achter[1], pixels[i * 4 + 2] - achter[2]);
-    const kleur = Math.max(0, Math.min(1, (d - 14) / 40));
-    const model = (k - 25) / 205;
-    alfa[i] = Math.round(255 * Math.max(0, Math.min(1, 0.7 * kleur + 0.3 * model)));
+    const j = i * 4;
+    if (diep[j] >= 245 && haarNabij[j] < 40) { alfa[i] = 255; continue; } // huid/kleding diep binnenin, niet bij haar
+    if (mogelijk[j] < 3) { alfa[i] = 0; continue; }
+    const vr = pixels[j] - achter[j], vg = pixels[j + 1] - achter[j + 1], vb = pixels[j + 2] - achter[j + 2];
+    const d = Math.hypot(vr, vg, vb);
+    if (d < KLEUR_VAN) { alfa[i] = 0; continue; }       // ruis in de achtergrond
+    // Schaduw op het studiodoek (bijv. van het haar): iets donkerder, maar dezelfde kleurtint als het
+    // doek. Dat is achtergrond, geen persoon.
+    if (d < SCHADUW_MAX) {
+      const bl = Math.hypot(achter[j], achter[j + 1], achter[j + 2]), cl = Math.hypot(pixels[j], pixels[j + 1], pixels[j + 2]);
+      const cos = (pixels[j] * achter[j] + pixels[j + 1] * achter[j + 1] + pixels[j + 2] * achter[j + 2]) / (bl * cl || 1);
+      if (cl < bl && cos > SCHADUW_TINT) { alfa[i] = 0; continue; }
+    }
+    // Hoeveel persoon? Afstand tot de achtergrond, gedeeld door die van dekkend haar hier (× DEKKEND,
+    // net iets minder dan 1 zodat lichtere lokken in dekkend haar toch helemaal dekken). Een dun
+    // haartje dat half doorzichtig is, krijgt zo maar half dekking (geen lichte of zilveren draadjes).
+    // Midden in een haarmassa (krullen, dreadlocks, grijze lokken) is een lichtere vezel nog steeds
+    // dekkend; losse haartjes buiten de massa zijn dun en half doorzichtig.
+    // Binnen de vorm van de persoon is kleding/huid langs de rand dekkend zodra hij duidelijk anders
+    // is (DEKKEND_KLEDING). Haar: DEKKEND waar het dun is, DEKKEND_DICHT in een dichte massa.
+    const binnen = Math.max(0, Math.min(1, (zeker[j] - 150) / 90));
+    const isHaar = Math.max(0, Math.min(1, (haar[j] - 30) / 90));
+    const kleding = binnen * (1 - isHaar);
+    const massa = Math.max(0, Math.min(1, (dichtheid[j] - 150) / 90)) * (1 - kleding);
+    const factor = DEKKEND - (DEKKEND - DEKKEND_KLEDING) * kleding - (DEKKEND - DEKKEND_DICHT) * massa;
+    const vol = Math.max(KLEUR_TOT, factor * dekking[j] * 2);
+    const a = (d - KLEUR_VAN) / vol;
+    alfa[i] = a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
   }
   return { alfa, gezicht, achter };
 }
@@ -167,11 +364,10 @@ export async function vervangAchtergrond(beeld, gezichten, achtergrond, gebied =
     else {
       // Rand (alleen haar/kleding, nooit binnen de gezichtsomtrek): eerst de oude achtergrondkleur
       // uit het randpixel halen, anders blijft er een lichte rand ("halo") rond het hoofd.
+      // De oude achtergrond precies vervangen door de nieuwe, alleen voor het deel dat niet bedekt is:
+      // nieuw = opname + (1 − dekking) × (nieuwe − oude achtergrond). Geen lichte randjes, geen vlekken.
       const f = al / 255;
-      for (let c = 0; c < 3; c++) {
-        const voor = f > 0.2 ? Math.max(0, Math.min(255, (o[j + c] - (1 - f) * achter[c]) / f)) : o[j + c];
-        u[j + c] = voor * f + a[j + c] * (1 - f) + 0.5;
-      }
+      for (let c = 0; c < 3; c++) u[j + c] = o[j + c] + (1 - f) * (a[j + c] - achter[j + c]) + 0.5;
     }
     u[j + 3] = 255;
   }
