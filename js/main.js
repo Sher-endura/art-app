@@ -372,13 +372,25 @@ function oogcontrole(a) {
   regels.push(lid < G.lidFout ? ["fout", "Pupillen deels bedekt door het ooglid"] : ["goed", "Pupillen goed zichtbaar"]);
   const { omhoog, omlaag, opzij } = a.kijkt, h = a.hoofd;
   const weg = opzij > G.kijktWeg ? "opzij" : omlaag > G.kijktWeg ? "omlaag" : omhoog > G.kijktWeg ? "omhoog" : null;
+  // Stand van het hoofd, met de richting en wat de medewerker de klant vraagt. "Links/rechts" = zoals op
+  // de foto; de klant kijkt naar de camera, dus de eigen kant van de klant is precies andersom.
+  // Tekens nagemeten op testfoto's (21 okt): opzij < 0 = neus naar links op de foto; voorover > 0 = kin omlaag;
+  // scheef > 0 = rechterkant van de foto lager.
+  const graden = (x) => `${komma(Math.abs(x), 0)}°`;
+  const stand = [];
+  if (Math.abs(h.opzij) > G.hoofdOpzij) stand.push(h.opzij < 0
+    ? `Hoofd ${graden(h.opzij)} naar links gedraaid (op de foto) — vraag de klant het hoofd iets naar de eigen linkerkant te draaien, neus recht naar de camera`
+    : `Hoofd ${graden(h.opzij)} naar rechts gedraaid (op de foto) — vraag de klant het hoofd iets naar de eigen rechterkant te draaien, neus recht naar de camera`);
+  if (Math.abs(h.voorover) > G.hoofdVoorover) stand.push(h.voorover > 0
+    ? `Kin ${graden(h.voorover)} te laag (hoofd voorover) — vraag de klant de kin iets op te tillen`
+    : `Kin ${graden(h.voorover)} te hoog (hoofd achterover) — vraag de klant de kin iets te laten zakken`);
   if (weg) regels.push(["let", `Kijkt ${weg}, niet recht in de lens`]);
-  else if (Math.abs(h.opzij) > G.hoofdOpzij) regels.push(["let", `Hoofd ${komma(Math.abs(h.opzij), 0)}° opzij gedraaid`]);
-  else if (Math.abs(h.voorover) > G.hoofdVoorover) regels.push(["let", `Hoofd ${komma(Math.abs(h.voorover), 0)}° voor- of achterover`]);
-  else regels.push(["goed", "Kijkt recht in de lens"]);
-  regels.push(Math.abs(h.scheef) > G.hoofdScheef
-    ? ["let", `Hoofd staat ${komma(Math.abs(h.scheef), 1)}° scheef`]
-    : ["goed", "Hoofd staat recht"]);
+  for (const t of stand) regels.push(["let", t]);
+  if (!weg && !stand.length) regels.push(["goed", "Kijkt recht in de lens"]);
+  regels.push(Math.abs(h.scheef) <= G.hoofdScheef ? ["goed", "Hoofd staat recht"]
+    : h.scheef > 0
+      ? ["let", `Hoofd staat ${komma(Math.abs(h.scheef), 1)}° scheef, helt naar rechts (op de foto) — vraag de klant het hoofd recht te houden, iets naar de eigen rechterschouder, tot de ogen even hoog staan`]
+      : ["let", `Hoofd staat ${komma(Math.abs(h.scheef), 1)}° scheef, helt naar links (op de foto) — vraag de klant het hoofd recht te houden, iets naar de eigen linkerschouder, tot de ogen even hoog staan`]);
   if (dicht || lid < G.lidFout || weg)
     regels.push(["advies", "Vraag de klant de ogen wijd open te doen en recht in de lens te kijken, en maak een nieuwe opname."]);
   return regels;
