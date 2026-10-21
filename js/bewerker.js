@@ -126,23 +126,27 @@ function stip(soort, d, bron, w, h, cx, cy, r, sterkte, verf) {
 
 const helder = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
 
-// Glans weg: de gewone huid in de buurt (40e percentiel van de helderheid; haar en schaduw tellen zo
-// niet mee, de glans zelf ook niet) geeft de doelkleur. Waar het (licht vervaagde) beeld lichter is
-// dan die huid, schuift de pixel naar de huidkleur, met behoud van de fijne huidstructuur
-// (pixel ÷ vervaagde omgeving). Zo komt er huidkleur terug in plaats van een grauwe vlek.
-function glansStip(d, w, h, cx, cy, r, sterkte) {
+// Glans weg: glans is wit licht bovenop de huid. We halen een DEEL van dat extra licht weg (sterkte),
+// niet alles: een gezicht heeft van nature lichte en donkere vlakken, en alles even donker maken
+// oogt plat en grauw. Alles wordt berekend op de foto zoals hij was bij het begin van de streek
+// (voor), zodat heen-en-weer gaan binnen één streek niet steeds verder doordonkert.
+//   - doel: de gewone huidhelderheid in de buurt (mediaan binnen 1,6× de straal);
+//   - huid: de gemiddelde kleur van de monsters rond die mediaan (voor de kleur in felle plekken);
+//   - het teveel boven het doel (licht vervaagd) gaat voor een deel ("afname") weg;
+//   - fijne huidstructuur blijft (pixel ÷ omgeving), lichte puntjes (glimstipjes) worden afgetopt.
+function glansStip(d, voor, w, h, cx, cy, r, afname) {
   const pak = (x, y) => { x = Math.max(0, Math.min(w - 1, Math.round(x))); y = Math.max(0, Math.min(h - 1, Math.round(y))); return (y * w + x) * 4; };
-  const monsters = MONSTERS.map(([mx, my]) => { const j = pak(cx + mx * r * 1.6, cy + my * r * 1.6); return [helder(d, j), d[j], d[j + 1], d[j + 2]]; })
+  const monsters = MONSTERS.map(([mx, my]) => { const j = pak(cx + mx * r * 1.6, cy + my * r * 1.6); return [helder(voor, j), voor[j], voor[j + 1], voor[j + 2]]; })
     .sort((a, b) => a[0] - b[0]);
-  const doel = monsters[Math.floor(monsters.length * 0.4)][0];
+  const doel = monsters[monsters.length >> 1][0];
   const huid = [0, 0, 0];
   let nh = 0;
-  for (const mo of monsters) if (Math.abs(mo[0] - doel) <= 10) { huid[0] += mo[1]; huid[1] += mo[2]; huid[2] += mo[3]; nh++; }
+  for (const mo of monsters) if (Math.abs(mo[0] - doel) <= 12) { huid[0] += mo[1]; huid[1] += mo[2]; huid[2] += mo[3]; nh++; }
   for (let c = 0; c < 3; c++) huid[c] /= nh;
-  const huidL = 0.299 * huid[0] + 0.587 * huid[1] + 0.114 * huid[2];
+  const huidL = Math.max(1, 0.299 * huid[0] + 0.587 * huid[1] + 0.114 * huid[2]);
   // helderheid licht vervaagd (doosfilter met lopende som, horizontaal en dan verticaal)
   const L = new Float32Array(w * h), T = new Float32Array(w * h), V = new Float32Array(w * h), k = Math.max(1, Math.round(r * 0.12));
-  for (let i = 0; i < w * h; i++) L[i] = helder(d, i * 4);
+  for (let i = 0; i < w * h; i++) L[i] = helder(voor, i * 4);
   for (let y = 0; y < h; y++) {
     let s = 0;
     for (let x = 0; x < Math.min(w, k); x++) s += L[y * w + x];
@@ -164,15 +168,25 @@ function glansStip(d, w, h, cx, cy, r, sterkte) {
   const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
   const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const m = dekking(Math.hypot(x - cx, y - cy), r) * sterkte;
+    const m = dekking(Math.hypot(x - cx, y - cy), r);
     if (m <= 0) continue;
+    const p = y * w + x, v = Math.max(1, V[p]);
     // kleine glimstipjes (neus) tellen ook mee: de pixel zelf weegt half mee
-    const p = y * w + x, teveel = Math.max(V[p], (V[p] + L[p]) / 2) - doel - 2;
+    const teveel = Math.max(v, (v + L[p]) / 2) - doel - 2;
     if (teveel <= 0) continue;
-    const i = p * 4, f = m * Math.min(1, teveel / 8);
-    // structuur: poriën (donkerder) blijven; lichtere puntjes zijn glans en worden afgetopt
-    const structuur = Math.min(1.04, L[p] / Math.max(1, V[p])) * (doel / Math.max(1, huidL));
-    for (let c = 0; c < 3; c++) d[i + c] += (huid[c] * structuur - d[i + c]) * f;
+    const i = p * 4;
+    const structuur = Math.min(1.04, L[p] / v);
+    // zachte glans gaat voor een deel weg, felle plekken (glimstipjes) bijna helemaal
+    const weg = afname + (1 - afname) * 0.85 * Math.min(1, Math.max(0, teveel - 20) / 50);
+    const nieuwL = (v - teveel * weg) * structuur;              // doel-helderheid van deze pixel
+    const kleurMeng = weg * Math.min(1, teveel / 30);           // felle glans krijgt meer huidkleur terug
+    const zacht = Math.min(1, teveel / 8);                      // geen harde grens bij het doel
+    for (let c = 0; c < 3; c++) {
+      const eigen = voor[i + c] * (nieuwL / Math.max(1, L[p]));
+      const metHuid = huid[c] * (nieuwL / huidL);
+      const doelKleur = voor[i + c] + (eigen + (metHuid - eigen) * kleurMeng - voor[i + c]) * zacht;
+      d[i + c] += (doelKleur - d[i + c]) * m * 0.5;
+    }
   }
 }
 
@@ -275,6 +289,21 @@ function bewaarTegels(x0, y0, x1, y1) {
     }
 }
 
+// De pixels zoals ze waren bij het begin van deze streek (uit de bewaarde tegels voor ongedaan maken).
+function streekVoor(x0, y0, w, h) {
+  const uit = new Uint8ClampedArray(w * h * 4);
+  for (const tg of streek.tegels.values()) {
+    const tw = tg.voor.width, th = tg.voor.height;
+    const ax = Math.max(x0, tg.x), bx = Math.min(x0 + w, tg.x + tw), ay = Math.max(y0, tg.y), by = Math.min(y0 + h, tg.y + th);
+    if (bx <= ax || by <= ay) continue;
+    for (let y = ay; y < by; y++) {
+      const van = ((y - tg.y) * tw + (ax - tg.x)) * 4;
+      uit.set(tg.voor.data.subarray(van, van + (bx - ax) * 4), ((y - y0) * w + (ax - x0)) * 4);
+    }
+  }
+  return uit;
+}
+
 function dab(p) {
   const r = straal(), W = huidig.werk.width, H = huidig.werk.height;
   const marge = Math.ceil(r * 1.7) + 2;
@@ -287,7 +316,7 @@ function dab(p) {
   const sterkte = Number($("bw-sterkte").value) / 100;
   // Haartjes weg en vegen werken met de volle sterkte; verzachten en vervagen bouwen op per stip.
   const perStip = gereedschap === "veeg" || gereedschap === "herstel" ? sterkte : sterkte * 0.6;
-  if (gereedschap === "glans") glansStip(id.data, id.width, id.height, p.x - x0, p.y - y0, r, perStip);
+  if (gereedschap === "glans") glansStip(id.data, streekVoor(x0, y0, id.width, id.height), id.width, id.height, p.x - x0, p.y - y0, r, sterkte * 0.75);
   else stip(gereedschap, id.data, bron, id.width, id.height, p.x - x0, p.y - y0, r, perStip, streek.verf);
   huidig.wctx.putImageData(id, x0, y0);
   if (gereedschap === "veeg") streek.verf = pakVerf(p, r);
