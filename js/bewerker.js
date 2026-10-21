@@ -269,12 +269,22 @@ function brilStip(d, voor, w, h, cx, cy, r, afname) {
     if (helder(voor, i) < donker) continue;
     // alleen waar de kleur echt koeler is dan de huid (rood − groen kleiner dan bij schone huid): gewone,
     // lichtere huid (neus) wordt niet roze; heel lichte pixels (wit montuur, lichtpuntje in het oog) blijven
-    const koeler = Math.min(1, Math.max(0, ((schoon[0] - schoon[1]) - (voor[i] - voor[i + 1]) - 8) / 20));
+    const koeler = Math.min(1, Math.max(0, ((schoon[0] - schoon[1]) - (voor[i] - voor[i + 1]) - 4) / 14));
     const nietWit = Math.min(1, Math.max(0, (215 - helder(voor, i)) / 20));
-    const a = Math.min(As[p], A[p] + 0.3) * afname * koeler * nietWit;
-    if (a <= 0) continue;
+    // vervaagd (glad laagje), maar aan de scherpe rand van een reflectie telt de pixel zelf (anders blijft
+    // er een omtrek staan)
+    let a = Math.min(Math.max(As[p], A[p] * 0.85), A[p] + 0.3) * afname * koeler * nietWit;
+    // nooit voorbij de huidkleur: niet meer weghalen dan nodig om de rood-groenverhouding van schone
+    // huid te bereiken (anders wordt het oranje)
+    if (R[1] - R[0] > 5) a = Math.min(a, Math.max(0, ((schoon[0] - schoon[1]) - (voor[i] - voor[i + 1])) / (R[1] - R[0])));
+    const isReflectie = Math.min(1, Math.min(As[p], A[p] + 0.3)) * afname * koeler * nietWit;
+    if (isReflectie <= 0) continue;
+    // daarna het extra LICHT van de reflectie voor een deel weg (naar de helderheid van schone huid)
+    const na = [0, 1, 2].map((c) => voor[i + c] - a * R[c]);
+    const lNa = 0.299 * na[0] + 0.587 * na[1] + 0.114 * na[2], lHuid = helder(schoon, 0);
+    const donkerder = lNa > lHuid ? Math.max(0.6, 1 - ((lNa - lHuid) / lNa) * 0.8 * isReflectie) : 1;
     for (let c = 0; c < 3; c++) {
-      const doelKleur = voor[i + c] - a * R[c];
+      const doelKleur = na[c] * donkerder;
       d[i + c] += (doelKleur - d[i + c]) * m * 0.5;
     }
   }
