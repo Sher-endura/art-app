@@ -73,8 +73,9 @@ export function heeftBewerking(bron) {
 }
 
 // ---------- penselen ----------
-// Zachte rand: 1 in het midden, naar 0 aan de rand.
-const dekking = (afstand, r) => { const t = afstand / r; return t >= 1 ? 0 : t < 0.5 ? 1 : 1 - (t - 0.5) * 2; };
+// Volle kracht tot 85 % van de straal, daarna een smal zacht randje: de cirkel op het scherm is zo
+// precies het werkende deel (eerder werkte alleen de binnenste helft echt).
+const dekking = (afstand, r) => { const t = afstand / r; return t >= 1 ? 0 : t < 0.85 ? 1 : (1 - t) / 0.15; };
 
 function mediaan(waarden) { waarden.sort((a, b) => a - b); return waarden[waarden.length >> 1]; }
 
@@ -375,6 +376,14 @@ function teken() {
   knoppen();
 }
 function planTeken() { knoppen(); if (!tekenGepland) { tekenGepland = true; requestAnimationFrame(teken); } }
+
+// Inzoomen of uitzoomen rond het midden van het vak (knoppen − en +).
+function zoomMidden(f) {
+  if (!huidig) return;
+  const vak = $("bw-vak").getBoundingClientRect(), mx = vak.width / 2, my = vak.height / 2;
+  zicht.x = mx - (mx - zicht.x) * f; zicht.y = my - (my - zicht.y) * f; zicht.s *= f;
+  planTeken();
+}
 
 function knoppen() {
   $("bw-ongedaan").disabled = !huidig?.stappen.length;
@@ -703,7 +712,7 @@ export function start() {
   c.addEventListener("pointerdown", (e) => {
     if (!huidig) return;
     try { c.setPointerCapture(e.pointerId); } catch { /* niet elke invoer ondersteunt dit */ }
-    if (e.button === 2 || e.button === 1 || spatie) { schuif = { x: e.clientX, y: e.clientY }; return; }
+    if (e.button === 2 || e.button === 1 || spatie || gereedschap === "hand") { schuif = { x: e.clientX, y: e.clientY }; c.style.cursor = "grabbing"; return; }
     if (gereedschap === "lasso") { lassoNeer(e); return; }
     beginStreek(e);
   });
@@ -713,13 +722,13 @@ export function start() {
     const vr = $("bw-vak").getBoundingClientRect();
     cirkel.style.width = cirkel.style.height = r * 2 + "px";
     cirkel.style.left = e.clientX - vr.left - r + "px"; cirkel.style.top = e.clientY - vr.top - r + "px";
-    cirkel.hidden = gereedschap === "lasso";
-    c.style.cursor = gereedschap !== "lasso" ? "none" : binnenZwevend(naarBeeld(e)) ? "move" : "crosshair";
+    cirkel.hidden = gereedschap === "lasso" || gereedschap === "hand";
+    if (!schuif) c.style.cursor = gereedschap === "hand" ? "grab" : gereedschap !== "lasso" ? "none" : binnenZwevend(naarBeeld(e)) ? "move" : "crosshair";
     if (schuif) { zicht.x += e.clientX - schuif.x; zicht.y += e.clientY - schuif.y; schuif = { x: e.clientX, y: e.clientY }; planTeken(); return; }
     if (gereedschap === "lasso") { lassoBeweeg(e); return; }
     if (streek) verlengStreek(e);
   });
-  c.addEventListener("pointerup", () => { schuif = null; if (gereedschap === "lasso") lassoOp(); else eindStreek(); });
+  c.addEventListener("pointerup", () => { schuif = null; if (gereedschap === "hand") c.style.cursor = "grab"; if (gereedschap === "lasso") lassoOp(); else eindStreek(); });
   c.addEventListener("pointerleave", () => { $("bw-cirkel").hidden = true; });
   c.addEventListener("wheel", (e) => {
     if (!huidig) return;
@@ -764,6 +773,8 @@ export function start() {
   $("bw-ongedaan").addEventListener("click", ongedaan);
   $("bw-opnieuw").addEventListener("click", opnieuw);
   $("bw-passend").addEventListener("click", () => { passend(); planTeken(); });
+  $("bw-kleiner").addEventListener("click", () => zoomMidden(1 / 1.25));
+  $("bw-groter").addEventListener("click", () => zoomMidden(1.25));
   const voorNa = $("bw-voorna");
   const zet = (v) => { toonOrigineel = v; planTeken(); };
   voorNa.addEventListener("pointerdown", () => zet(true));

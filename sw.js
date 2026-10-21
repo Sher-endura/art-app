@@ -1,6 +1,6 @@
 // Service worker: zorgt dat ART ook zonder internet opstart.
 // Eerst het netwerk proberen (dan krijg je altijd de nieuwste versie), anders de opgeslagen kopie.
-const CACHE = "art-v21";
+const CACHE = "art-v22";
 const BESTANDEN = [
   "./", "./index.html", "./style.css", "./manifest.webmanifest",
   "./js/main.js", "./js/landen.js", "./js/matrix.js", "./js/editor.js", "./js/afdrukvel.js", "./js/cameramap.js",

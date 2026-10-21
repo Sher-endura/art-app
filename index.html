@@ -276,6 +276,8 @@
         <button id="bw-ongedaan" class="knop" type="button" title="Ctrl+Z">↶ Ongedaan maken</button>
         <button id="bw-opnieuw" class="knop" type="button" title="Ctrl+Y">↷ Opnieuw</button>
         <button id="bw-voorna" class="knop" type="button" title="Ingedrukt houden">Voor / na (ingedrukt houden)</button>
+        <button id="bw-kleiner" class="knop" type="button" title="Uitzoomen">−</button>
+        <button id="bw-groter" class="knop" type="button" title="Inzoomen">+</button>
         <button id="bw-passend" class="knop" type="button">Passend</button>
       </div>
       <div class="knoppen">
@@ -289,6 +291,7 @@
         <section>
           <h2>Penselen</h2>
           <div class="bw-gereedschappen">
+            <button class="knop bw-gereedschap" data-g="hand" type="button">✋ Hand: foto verschuiven</button>
             <button class="knop bw-gereedschap" data-g="herstel" type="button">Haartjes / vlekjes weg</button>
             <button class="knop bw-gereedschap" data-g="glans" type="button">Glans weg (zweet, flits)</button>
             <button class="knop bw-gereedschap" data-g="wallen" type="button">Wallen weg (onder de ogen)</button>
@@ -303,7 +306,7 @@
           <label>Sterkte
             <input id="bw-sterkte" type="range" min="5" max="100" value="70">
           </label>
-          <p class="uitleg">Slepen = penselen · scrollwiel = zoomen · rechtermuisknop of spatie + slepen = schuiven · [ en ] = penseel kleiner/groter</p>
+          <p class="uitleg">Slepen = penselen · <strong>✋ Hand</strong>, rechtermuisknop of spatie + slepen = foto verschuiven · scrollwiel of − / + = zoomen · [ en ] = penseel kleiner/groter. De cirkel is precies zo groot als het penseel werkt.</p>
         </section>
         <section>
           <h2>Selectie</h2>
@@ -416,6 +419,8 @@
         <button id="us-ongedaan" class="knop" type="button" title="Ctrl+Z">↶ Ongedaan maken</button>
         <button id="us-opnieuw" class="knop" type="button" title="Ctrl+Y">↷ Opnieuw</button>
         <button id="us-voorna" class="knop" type="button" title="Ingedrukt houden">Opname (ingedrukt houden)</button>
+        <button id="us-kleiner" class="knop" type="button" title="Uitzoomen">−</button>
+        <button id="us-groter" class="knop" type="button" title="Inzoomen">+</button>
         <button id="us-passend" class="knop" type="button">Passend</button>
       </div>
       <div class="knoppen">
@@ -430,6 +435,7 @@
           <div class="bw-gereedschappen">
             <button class="knop us-gereedschap" data-g="erbij" type="button">Hoort erbij</button>
             <button class="knop us-gereedschap" data-g="weg" type="button">Weg</button>
+            <button class="knop us-gereedschap" data-g="hand" type="button">✋ Hand: foto verschuiven</button>
           </div>
           <label>Grootte penseel
             <input id="us-grootte" type="range" min="4" max="300" value="30">
@@ -438,7 +444,23 @@
             <input id="us-sterkte" type="range" min="5" max="100" value="100">
           </label>
           <p class="uitleg"><strong>Hoort erbij</strong>: over een stuk van de persoon dat (half) weg is. <strong>Weg</strong>: over een restje oude achtergrond (muur, plint, vloer). Het gezicht kan niet weggehaald worden.</p>
-          <p class="uitleg">Slepen = penselen · scrollwiel = zoomen · rechtermuisknop of spatie + slepen = schuiven · [ en ] = penseel kleiner/groter</p>
+          <p class="uitleg">Slepen = penselen · <strong>✋ Hand</strong>, rechtermuisknop of spatie + slepen = foto verschuiven · scrollwiel of − / + = zoomen · [ en ] = penseel kleiner/groter. De cirkel is precies zo groot als het penseel werkt.</p>
+        </section>
+        <section>
+          <h2>Selecteren</h2>
+          <div class="bw-gereedschappen">
+            <button class="knop us-gereedschap" data-g="lasso" type="button">Lasso (zelf omcirkelen)</button>
+            <button class="knop us-gereedschap" data-g="toverstaf" type="button">Toverstaf (zelfde kleur)</button>
+          </div>
+          <label>Gevoeligheid toverstaf <span id="us-tolerantie-waarde">25</span>
+            <input id="us-tolerantie" type="range" min="5" max="80" value="25">
+          </label>
+          <div class="knoppen">
+            <button id="us-sel-weg" class="knop hoofdknop" type="button" disabled>Selectie → Weg</button>
+            <button id="us-sel-erbij" class="knop" type="button" disabled>Selectie → Hoort erbij</button>
+            <button id="us-sel-wis" class="knop" type="button" disabled>Selectie wissen</button>
+          </div>
+          <p class="uitleg"><strong>Toverstaf</strong>: klik op bijv. de oude kruk; alles wat eraan vastzit met ongeveer dezelfde kleur wordt rood. Te veel of te weinig? Zet de gevoeligheid lager of hoger en klik opnieuw. <strong>Shift</strong> + klikken of omcirkelen voegt een stuk toe, <strong>Alt</strong> + klikken of omcirkelen haalt een stuk eraf. Delete = Selectie → Weg, Esc = selectie wissen.</p>
         </section>
         <section>
           <h2>Alles terug</h2>
