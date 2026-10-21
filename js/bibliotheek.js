@@ -90,6 +90,7 @@ async function toonBibliotheek() {
       gekozen = it.id;
       markeer();
       $("ag-slim").disabled = false;
+      $("ag-download").disabled = $("ag-verwijder").disabled = false;
     });
     markeer();
   }
@@ -242,8 +243,37 @@ async function toonWolk() {
   const wie = await wolk.ingelogd();
   $("wolk-inlog").hidden = !!wie;
   $("wolk-ingelogd").hidden = !wie;
-  if (wie) $("wolk-wie").textContent = `Ingelogd als ${wie.email}`;
+  const baas = await wolk.beheerder();
+  $("ag-beheer").hidden = !baas;
+  if (wie) $("wolk-wie").textContent = `Ingelogd als ${wie.email}` + (baas ? " (beheerder)" : "");
   return wie;
+}
+
+// ---------- beheer (alleen eigenaar en beheerder) ----------
+const beheerStatus = (tekst, soort = "") => { $("beheer-status").textContent = tekst; $("beheer-status").className = "status " + soort; };
+async function origineelDownloaden() {
+  const item = gekozen && await bib.haalAchtergrond(gekozen);
+  if (!item || !bib.isBeheerder()) return;
+  const ext = { "image/png": "png", "image/webp": "webp" }[item.beeld.type] || "jpg";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(item.beeld);
+  a.download = `${item.naam}.${ext}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+async function verwijderen() {
+  const item = gekozen && await bib.haalAchtergrond(gekozen);
+  if (!item || !bib.isBeheerder()) return;
+  if (!confirm(`"${item.naam}" voorgoed verwijderen, bij beide filialen?`)) return;
+  beheerStatus("Verwijderen…");
+  try {
+    await wolk.verwijder(item);
+    gekozen = null;
+    $("ag-slim").disabled = $("ag-download").disabled = $("ag-verwijder").disabled = true;
+    beheerStatus(`Verwijderd: ${item.naam}. Het andere filiaal haalt hem binnen 2 minuten ook weg.`, "goed");
+  } catch (e) {
+    beheerStatus(`Verwijderen lukte niet: ${e.message}`, "fout");
+  }
 }
 function startWolk() {
   const deel = () => wolk.synchroniseer(wolkStatus);
@@ -310,6 +340,8 @@ export function startBibliotheek() {
 
   $("ag-nieuw").addEventListener("click", () => nieuweAchtergrond($("ag-omschrijving").value));
   $("ag-slim").addEventListener("click", () => gekozen && slimBewerken(gekozen));
+  $("ag-download").addEventListener("click", origineelDownloaden);
+  $("ag-verwijder").addEventListener("click", verwijderen);
   $("slim-resultaat").addEventListener("change", async (e) => {
     const n = await batch(e.target.files, "slim");
     if (n) slimMelding(`✓ ${n} toegevoegd aan de achtergronden.`, "goed");

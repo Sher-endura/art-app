@@ -4,6 +4,11 @@
 import { alleAchtergronden, bewaarAchtergrond, haalAchtergrond, verwijderLokaal } from "./db.js";
 
 const luisteraars = new Set(), naToevoegenLijst = new Set();
+// Is wie hier ingelogd is een beheerder (eigenaar Super Photo / beheerder van ART)? Zet wolk.js.
+// Wat een filiaal toevoegt, komt in het vak "Nieuw"; wat een beheerder toevoegt, meteen gewoon in de groep.
+let beheerder = false;
+export function zetBeheerder(ja) { beheerder = !!ja; }
+export const isBeheerder = () => beheerder;
 export function bijWijziging(f) { luisteraars.add(f); }      // scherm verversen
 export function naToevoegen(f) { naToevoegenLijst.add(f); }   // bijv. meteen delen met de cloud
 export const meld = () => luisteraars.forEach((f) => f());
@@ -60,6 +65,7 @@ async function voegToeNu(bestanden, bron, voortgang) {
         toegevoegd: Date.now() + i, // volgorde binnen een batch bewaren
         bron,
         wolk: false,
+        nieuw: !beheerder,
         beeld: f,
         duim: await duimnagel(beeld),
       };

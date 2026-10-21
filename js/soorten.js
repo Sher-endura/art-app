@@ -151,12 +151,18 @@ async function kleurenVan(item) {
   return k.length ? k : kleurUitDuim(item);
 }
 
+export const NIEUW = "Nieuw (toegevoegd door een filiaal)";
 const opNaam = (a, b) => toonNaam(a.naam).localeCompare(toonNaam(b.naam), "nl", { numeric: true });
 
 // Verdeel de achtergronden voor een weergave in vakken: [{ titel, items }], alleen niet-lege vakken.
 export async function vakken(lijst, weergave) {
   const vak = new Map();
-  const doe = (titel, item) => { if (!vak.has(titel)) vak.set(titel, []); vak.get(titel).push(item); };
+  // Door een filiaal toegevoegd (nieuw): in een eigen vak "Nieuw", vooraan in elke weergave.
+  const doe = (titel, item) => {
+    if (item.nieuw) titel = NIEUW;
+    if (!vak.has(titel)) vak.set(titel, []);
+    if (!vak.get(titel).includes(item)) vak.get(titel).push(item);
+  };
   let volgorde = [];
   for (const item of lijst) {
     const s = soortVan(item.naam);
@@ -171,6 +177,7 @@ export async function vakken(lijst, weergave) {
   else if (weergave === "natuur") volgorde = [...NATUUR.map(([d]) => d), "Overige natuur"];
   else if (weergave === "materiaal") volgorde = [...MATERIAAL.map(([d]) => d), "Overige materialen"];
   else if (weergave === "decor") volgorde = [...DECOR.map(([d]) => d), "Overige decors"];
+  volgorde.unshift(NIEUW);
   const titels = [...volgorde.filter((t) => vak.has(t)), ...[...vak.keys()].filter((t) => !volgorde.includes(t))];
   return titels.map((titel) => ({ titel, items: vak.get(titel).sort(opNaam) }));
 }
