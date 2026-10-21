@@ -8,6 +8,7 @@
 import * as bib from "./achtergronden.js";
 import { MapWachter, cameramapMogelijk } from "./cameramap.js";
 import * as wolk from "./wolk.js";
+import { WEERGAVEN, vakken, aantallen, toonNaam } from "./soorten.js";
 
 const AI_ADRES = "https://chatgpt.com/";
 const WACHTTIJD = 15 * 60 * 1000; // zo lang na een klik neemt ART downloads aan als resultaat
@@ -31,7 +32,8 @@ function tegel(item, bijKlik) {
   img.alt = "";
   img.loading = "lazy";
   const naam = document.createElement("span");
-  naam.textContent = item.naam;
+  naam.textContent = toonNaam(item.naam);
+  b.title = item.naam;
   b.append(img, naam);
   if (item.bron === "slim") {
     const bron = document.createElement("span");
@@ -43,18 +45,53 @@ function tegel(item, bijKlik) {
   return b;
 }
 
+// ---------- indeling in soorten ----------
+// Bovenaan knoppen (Alles, Natuur, Seizoenen, …); daaronder de achtergronden in vakken met een kopje.
+// De gekozen soort blijft staan zolang ART open is (apart voor de pagina en het kiesvenster).
+const weergave = { bibliotheek: "alles", kiezer: "alles" };
+const beurt = { bibliotheek: 0, kiezer: 0 };
+async function toonInSoorten(scherm, knoppenVak, lijstVak, lijst, bijKlik, klein = false) {
+  const nr = ++beurt[scherm];
+  const n = aantallen(lijst);
+  if (!n[weergave[scherm]]) weergave[scherm] = "alles";
+  const delen = await vakken(lijst, weergave[scherm]);
+  if (nr !== beurt[scherm]) return; // intussen een andere soort gekozen
+  knoppenVak.replaceChildren(...(lijst.length ? WEERGAVEN : []).filter((w) => n[w.id]).map((w) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "knop" + (w.id === weergave[scherm] ? " actief" : "");
+    b.textContent = w.id === "kleur" ? w.naam : `${w.naam} (${n[w.id]})`;
+    b.addEventListener("click", () => {
+      weergave[scherm] = w.id;
+      toonInSoorten(scherm, knoppenVak, lijstVak, lijst, bijKlik, klein).then(() => { lijstVak.closest(".vak-lijst, .kiezer-lijst").scrollTop = 0; });
+    });
+    return b;
+  }));
+  lijstVak.replaceChildren(...delen.flatMap(({ titel, items }) => {
+    const kop = document.createElement("h4");
+    kop.className = "sub";
+    kop.textContent = `${titel} (${items.length})`;
+    const raster = document.createElement("div");
+    raster.className = "bibliotheek" + (klein ? " klein" : "");
+    raster.append(...items.map((item) => tegel(item, bijKlik)));
+    return [kop, raster];
+  }));
+}
+
 async function toonBibliotheek() {
   const lijst = await bib.lijst();
   const vak = $("bibliotheek");
+  const markeer = () => { for (const t of vak.querySelectorAll(".tegel")) t.classList.toggle("gekozen", t.dataset.id === gekozen); };
   if (!lijst.length) {
+    $("ag-soorten").replaceChildren();
     vak.innerHTML = '<p class="leeg-lijst">Nog geen achtergronden. Kies bestanden of een hele map, of sleep een batch hierheen.</p>';
   } else {
-    vak.replaceChildren(...lijst.map((item) => tegel(item, (it) => {
+    await toonInSoorten("bibliotheek", $("ag-soorten"), vak, lijst, (it) => {
       gekozen = it.id;
-      for (const t of vak.querySelectorAll(".tegel")) t.classList.toggle("gekozen", t.dataset.id === gekozen);
+      markeer();
       $("ag-slim").disabled = false;
-    })));
-    for (const t of vak.querySelectorAll(".tegel")) t.classList.toggle("gekozen", t.dataset.id === gekozen);
+    });
+    markeer();
   }
   $("ag-status").textContent = `${lijst.length} achtergrond${lijst.length === 1 ? "" : "en"} in de bibliotheek.`;
   $("ag-status").className = "status";
@@ -67,7 +104,7 @@ async function batch(bestanden, bron = "batch") {
   st.className = "status";
   const { toegevoegd, overgeslagen } = await bib.voegToe(lijst, bron, (i, n) => { st.textContent = `Bezig: ${i} van ${n}…`; });
   await toonBibliotheek();
-  st.textContent = `${toegevoegd} toegevoegd` + (overgeslagen ? `, ${overgeslagen} overgeslagen (dubbel of geen afbeelding)` : "") + ".";
+  st.textContent = `${toegevoegd} toegevoegd` + (overgeslagen ? `, ${overgeslagen} overgeslagen (dubbel, overzichtsblad of geen afbeelding)` : "") + ".";
   st.className = "status goed";
   return toegevoegd;
 }
@@ -98,7 +135,7 @@ export async function kiesAchtergrond({ kleuren = false } = {}) {
       b.addEventListener("click", () => kies({ soort: "kleur", kleur: e.kleur, naam: e.naam.toLowerCase() }));
       return b;
     }));
-    $("kiezer-lijst").replaceChildren(...lijst.map((item) => tegel(item, (it) => kies({ soort: "bibliotheek", id: it.id, naam: it.naam }))));
+    toonInSoorten("kiezer", $("kiezer-soorten"), $("kiezer-lijst"), lijst, (it) => kies({ soort: "bibliotheek", id: it.id, naam: it.naam }), true);
     $("kiezer-annuleer").onclick = () => kies(null);
     venster.oncancel = () => klaar(null);
     venster.showModal();

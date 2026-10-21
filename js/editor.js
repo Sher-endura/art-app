@@ -1,7 +1,7 @@
 // De werkplek: toont de foto in het kader van het document, met de matrix erover.
 // Plaatsing van de foto: beeldpixel (ix, iy) ligt op (ox + ix/k, oy + iy/k) mm in het kader.
 // k = beeldpixels per mm (kleiner = foto groter).
-import { tekenMatrix } from "./matrix.js";
+import { tekenMatrix, tekenMaten } from "./matrix.js";
 
 const MARGE = 9;        // mm rond het kader zichtbaar (gedimd), handig bij schuiven
 const RUIMTE_LABELS = 7; // extra mm rechts voor de labels kruin/ogen/kin
@@ -18,6 +18,8 @@ export class Editor {
     this.analyse = null;       // uitkomst van de gezichtsherkenning (ogen, stand hoofd)
     this.klik = null;          // null | "kruin" | "kin"
     this.toonMatrix = true;
+    this.toonMaten = true;
+    this.eenheid = "cm";       // maten op het scherm in "cm" of "inch"
     this.muis = null;          // laatste muispositie in mm (voor de hulplijn in klikmodus)
     this.sleep = null;
 
@@ -221,6 +223,7 @@ export class Editor {
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1.5;
     ctx.strokeRect(fx, fy, B * s, H * s);
+    if (this.toonMaten) tekenMaten(ctx, this.doc, mm, s, this.eenheid);
 
     // Klikmodus: hulplijn bij de muis en de al gezette punten.
     if (this.klik && this.muis) {

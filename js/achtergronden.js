@@ -1,14 +1,23 @@
 // De achtergrondenbibliotheek: één gedeelde verzameling achtergronden.
 // Elke computer heeft een eigen kopie (werkt offline); wolk.js deelt nieuwe achtergronden met het
 // andere filiaal zodra er internet is. Veld "wolk": true = staat ook in de cloud.
-import { alleAchtergronden, bewaarAchtergrond, haalAchtergrond } from "./db.js";
+import { alleAchtergronden, bewaarAchtergrond, haalAchtergrond, verwijderLokaal } from "./db.js";
 
 const luisteraars = new Set(), naToevoegenLijst = new Set();
 export function bijWijziging(f) { luisteraars.add(f); }      // scherm verversen
 export function naToevoegen(f) { naToevoegenLijst.add(f); }   // bijv. meteen delen met de cloud
 export const meld = () => luisteraars.forEach((f) => f());
 
-export const lijst = alleAchtergronden;
+// Overzichtsbladen uit de achtergrondpakketten ("OVERZICHT.jpg", "OVERZICHT-COLLECTIES-04-TOT-08.jpg")
+// zijn geen achtergronden: die neemt ART niet op, deelt ART niet en haalt ART weg als ze er al in staan.
+export const isOverzicht = (naam) => /^overzicht\b/i.test(naam);
+
+export async function lijst() {
+  const alle = await alleAchtergronden();
+  const weg = alle.filter((a) => isOverzicht(a.naam));
+  for (const a of weg) await verwijderLokaal(a.id);
+  return weg.length ? alle.filter((a) => !isOverzicht(a.naam)) : alle;
+}
 
 async function duimnagel(beeld) {
   const f = Math.min(1, 320 / Math.max(beeld.width, beeld.height));
@@ -39,7 +48,7 @@ async function voegToeNu(bestanden, bron, voortgang) {
   for (const f of bestanden) {
     voortgang(++i, bestanden.length);
     const naam = f.name.replace(/\.[^.]+$/, "");
-    if (!/^image\/(jpeg|png|webp)$/.test(f.type) || al.has(`${naam}|${f.size}`)) { overgeslagen++; continue; }
+    if (!/^image\/(jpeg|png|webp)$/.test(f.type) || al.has(`${naam}|${f.size}`) || isOverzicht(naam)) { overgeslagen++; continue; }
     try {
       const beeld = await createImageBitmap(f, { imageOrientation: "from-image" });
       const item = {

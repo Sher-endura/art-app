@@ -61,3 +61,53 @@ export function tekenMatrix(ctx, doc, mm, s) {
   label((ogen.van + ogen.tot) / 2, "ogen", "#a9d4ff");
   ctx.restore();
 }
+
+// Maatlijnen rond het kader: breedte (boven), hoogte en hoofdhoogte (links), in cm of inch.
+export function tekenMaten(ctx, doc, mm, s, eenheid = "cm") {
+  const B = doc.foto.breedte, H = doc.foto.hoogte;
+  const { min, max, doel } = doc.hoofd;
+  const kruin = doc.hoofdMidden - doel / 2, kin = doc.hoofdMidden + doel / 2;
+  const getal = (v) => eenheid === "inch"
+    ? (v / 25.4).toFixed(2).replace(".", ",")
+    : (v / 10).toFixed(Number.isInteger(v) ? 1 : 2).replace(".", ","); // 30 mm → 3,0 · 22,6 mm → 2,26
+  const maat = (v) => `${getal(v)} ${eenheid}`;
+
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "#f2f5fa";
+  ctx.font = `${Math.max(11, Math.round(s * 0.9))}px "Segoe UI", system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.lineJoin = "round";
+  const lijn = (x1, y1, x2, y2) => {
+    const [a, b] = mm(x1, y1), [c, d] = mm(x2, y2);
+    ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke();
+  };
+  // Tekst met een donkere rand, zodat hij op elke foto leesbaar is.
+  const tekst = (t, x, y, draai = false) => {
+    const [px, py] = mm(x, y);
+    ctx.save();
+    ctx.translate(px, py);
+    if (draai) ctx.rotate(-Math.PI / 2);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(14, 17, 22, 0.9)";
+    ctx.strokeText(t, 0, 0);
+    ctx.fillStyle = "#f2f5fa";
+    ctx.fillText(t, 0, 0);
+    ctx.restore();
+  };
+
+  // Breedte, boven het kader.
+  ctx.textBaseline = "bottom";
+  lijn(0, -3, B, -3); lijn(0, -4, 0, -2); lijn(B, -4, B, -2);
+  tekst(maat(B), B / 2, -3.5);
+  // Hoogte, links van het kader.
+  lijn(-6, 0, -6, H); lijn(-7, 0, -5, 0); lijn(-7, H, -5, H);
+  tekst(maat(H), -6.5, H / 2, true);
+  // Hoofdhoogte (vaste maat, met wat toegestaan is), tussen de gele lijnen.
+  ctx.strokeStyle = "#ffd84d";
+  lijn(-2.5, kruin, -2.5, kin); lijn(-3.3, kruin, -1.7, kruin); lijn(-3.3, kin, -1.7, kin);
+  const ruimte = min === max ? "" : ` (${getal(min)}–${getal(max)})`;
+  tekst(`hoofd ${maat(doel)}${ruimte}`, -3, (kruin + kin) / 2, true);
+  ctx.restore();
+}

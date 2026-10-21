@@ -10,6 +10,7 @@ import { vervangAchtergrond } from "./uitknippen.js";
 import { kiesAchtergrond, startBibliotheek } from "./bibliotheek.js";
 import { startStudio, laadStudiofoto } from "./studio.js";
 import * as bib from "./achtergronden.js";
+import { leesInstelling, bewaarInstelling } from "./db.js";
 import { open as openBewerker, start as startBewerker, heeftBewerking } from "./bewerker.js";
 import { open as openUitsnede, start as startUitsnede } from "./uitsnede.js";
 
@@ -215,6 +216,19 @@ $("klikken").addEventListener("click", () => (editor.klik ? editor.stopKlikken()
 $("kleiner").addEventListener("click", () => editor.zoom(1 / 1.02));
 $("groter").addEventListener("click", () => editor.zoom(1.02));
 $("matrixaan").addEventListener("change", (e) => { editor.toonMatrix = e.target.checked; editor.teken(); });
+// Maten rond het kader (aan/uit, cm of inch); de keuze blijft bewaard op deze computer.
+const eenheidKnoppen = document.querySelectorAll("input[name=eenheid]");
+function zetMaten({ aan = true, eenheid = "cm" } = {}) {
+  editor.toonMaten = aan;
+  editor.eenheid = eenheid === "inch" ? "inch" : "cm";
+  $("matenaan").checked = aan;
+  for (const r of eenheidKnoppen) r.checked = r.value === editor.eenheid;
+  editor.teken();
+}
+const bewaarMaten = () => bewaarInstelling("maten", { aan: editor.toonMaten, eenheid: editor.eenheid }).catch(() => {});
+$("matenaan").addEventListener("change", (e) => { zetMaten({ aan: e.target.checked, eenheid: editor.eenheid }); bewaarMaten(); });
+for (const r of eenheidKnoppen) r.addEventListener("change", () => { zetMaten({ aan: editor.toonMaten, eenheid: r.value }); bewaarMaten(); });
+leesInstelling("maten").then((m) => m && zetMaten(m), () => {});
 document.addEventListener("keydown", (e) => {
   if (pagina !== "pasfoto" || !editor.beeld || document.querySelector("dialog[open]")) return;
   if (document.activeElement.matches("select, input[type=radio], textarea")) return;

@@ -1,11 +1,11 @@
 // Service worker: zorgt dat ART ook zonder internet opstart.
 // Eerst het netwerk proberen (dan krijg je altijd de nieuwste versie), anders de opgeslagen kopie.
-const CACHE = "art-v24";
+const CACHE = "art-v25";
 const BESTANDEN = [
   "./", "./index.html", "./style.css", "./manifest.webmanifest",
   "./js/main.js", "./js/landen.js", "./js/matrix.js", "./js/editor.js", "./js/afdrukvel.js", "./js/cameramap.js",
   "./js/gezicht.js", "./js/mediapipe.js", "./js/kwaliteit.js", "./js/uitknippen.js", "./js/db.js",
-  "./js/achtergronden.js", "./js/bibliotheek.js", "./js/studio.js", "./js/config.js", "./js/wolk.js", "./js/wachtrij.js", "./js/bewerker.js", "./js/uitsnede.js", "./js/hulp.js",
+  "./js/achtergronden.js", "./js/bibliotheek.js", "./js/studio.js", "./js/config.js", "./js/wolk.js", "./js/wachtrij.js", "./js/bewerker.js", "./js/uitsnede.js", "./js/hulp.js", "./js/soorten.js",
   "./vendor/supabase/supabase.js",
   "./vendor/mediapipe/vision_bundle.mjs", "./vendor/mediapipe/face_landmarker.task", "./vendor/mediapipe/selfie_multiclass_256x256.tflite",
   "./vendor/mediapipe/wasm/vision_wasm_internal.js", "./vendor/mediapipe/wasm/vision_wasm_internal.wasm",

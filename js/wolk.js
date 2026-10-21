@@ -7,7 +7,7 @@
 // Klantfoto's gaan NOOIT naar de cloud: alleen achtergronden.
 import { WOLK } from "./config.js";
 import { alleAchtergronden, bewaarAchtergrond, verwijderLokaal } from "./db.js";
-import { meld } from "./achtergronden.js";
+import { meld, isOverzicht } from "./achtergronden.js";
 
 const BUCKET = "achtergronden";
 
@@ -84,7 +84,7 @@ async function ronde(status) {
     let omhoog = 0, omlaag = 0;
 
     // 1. Nieuwe achtergronden van deze computer naar de cloud.
-    for (const item of lokaal.filter((a) => !a.wolk)) {
+    for (const item of lokaal.filter((a) => !a.wolk && !isOverzicht(a.naam))) {
       if (inWolk.has(sleutel(item))) { await verwijderLokaal(item.id); continue; } // staat er al (ander filiaal); die versie komt bij stap 2
       status(`Delen: ${item.naam}…`);
       const pad = `${item.id}/${veilig(item.naam)}.${extensie(item.beeld.type)}`;
@@ -105,7 +105,7 @@ async function ronde(status) {
     lokaal = await alleAchtergronden();
     const heb = new Set(lokaal.map((a) => a.id)), hebNaam = new Set(lokaal.map(sleutel));
     for (const rij of wolk) {
-      if (heb.has(rij.id) || hebNaam.has(sleutel(rij))) continue;
+      if (heb.has(rij.id) || hebNaam.has(sleutel(rij)) || isOverzicht(rij.naam)) continue;
       status(`Ophalen: ${rij.naam}…`);
       const b = await sb.storage.from(BUCKET).download(rij.pad);
       if (b.error) throw b.error;

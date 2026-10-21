@@ -130,6 +130,13 @@ textarea {
 .tegel img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 4px; background: #0b0e13; }
 .tegel span { display: block; font-size: 13px; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tegel .bron { color: var(--goud); }
+.soorten { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; }
+.soorten:empty { display: none; }
+.soorten .knop { padding: 6px 12px; font-size: 13px; }
+.soorten .knop.actief { border-color: var(--goud); color: var(--goud); font-weight: 600; }
+#bibliotheek > h4.sub:first-child { margin-top: 6px; }
+.kiezer-lijst { max-height: 52vh; overflow-y: auto; padding-right: 4px; }
+.kiezer-lijst .bibliotheek.klein { max-height: none; overflow: visible; }
 .prop-tegels .tegel img { aspect-ratio: 1; object-fit: contain; background: #ebe8e1; padding: 8px; }
 .leeg-lijst { color: var(--tekst-2); padding: 20px; }
 

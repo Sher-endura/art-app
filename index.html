@@ -62,6 +62,11 @@
           <button id="groter" class="knop" type="button" title="Inzoomen" disabled>+</button>
           <label class="vink"><input id="matrixaan" type="checkbox" checked> Matrix tonen</label>
         </div>
+        <div class="zoom maten">
+          <label class="vink"><input id="matenaan" type="checkbox" checked> Maten tonen</label>
+          <label class="vink"><input type="radio" name="eenheid" value="cm" checked> cm</label>
+          <label class="vink"><input type="radio" name="eenheid" value="inch"> inch</label>
+        </div>
         <p class="uitleg">Slepen = schuiven · scrollwiel = zoomen · pijltjestoetsen = 0,1 mm (met Shift 1 mm)</p>
       </section>
 
@@ -230,7 +235,8 @@
     </aside>
 
     <div id="ag-vak" class="vak vak-lijst">
-      <div id="bibliotheek" class="bibliotheek"></div>
+      <div id="ag-soorten" class="soorten"></div>
+      <div id="bibliotheek"></div>
     </div>
   </main>
 
@@ -238,7 +244,8 @@
   <dialog id="kiezer" class="venster">
     <h3>Kies een achtergrond</h3>
     <div id="kiezer-kleuren" class="kleuren"></div>
-    <div id="kiezer-lijst" class="bibliotheek klein"></div>
+    <div id="kiezer-soorten" class="soorten"></div>
+    <div id="kiezer-lijst" class="kiezer-lijst"></div>
     <p id="kiezer-leeg" class="uitleg" hidden>Er staan nog geen achtergronden in de bibliotheek. Voeg ze toe op de pagina Achtergronden.</p>
     <div class="knoppen rechts"><button id="kiezer-annuleer" class="knop" type="button">Annuleren</button></div>
   </dialog>
