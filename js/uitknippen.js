@@ -44,12 +44,15 @@ async function ruwMasker(beeld, g) {
   // omrekenen naar een echte schaal van 0 tot 1.
   const schaal = (v, laag, hoog) => Math.max(0, Math.min(1, (v - laag) / (hoog - laag)));
   const achtergrond = maskers[0].getAsFloat32Array(), haarRuw = maskers[1].getAsFloat32Array();
+  const huidL = maskers[2].getAsFloat32Array(), huidG = maskers[3].getAsFloat32Array(), kledingRuw = maskers[4].getAsFloat32Array();
   const data = new Float32Array(achtergrond.length), haar = new Float32Array(achtergrond.length);
+  const kleding = new Float32Array(achtergrond.length); // kleding of huid
   for (let i = 0; i < data.length; i++) {
     data[i] = schaal(1 - achtergrond[i], 0.12, 0.9);
     haar[i] = schaal(haarRuw[i], 0.05, 0.9);
+    kleding[i] = schaal(huidL[i] + huidG[i] + kledingRuw[i], 0.15, 0.85);
   }
-  const uit = { w: maskers[0].width, h: maskers[0].height, data, haar, klein };
+  const uit = { w: maskers[0].width, h: maskers[0].height, data, haar, kleding, klein };
   res.close?.();
   return uit;
 }
@@ -214,6 +217,8 @@ const DEKKEND = 0.95;          // deel van de afstand van dekkend haar dat al he
 const DEKKEND_KLEDING = 0.75;  // idem voor de rand van kleding en huid
 const DEKKEND_DICHT = 0.7;     // idem midden in een dichte haarmassa (dreadlocks, krullen)
 const DREMPEL_DEKKEND = 110;   // afstand waarboven een (verkleind) pixel als dekkend telt
+const HAAR_ONDERGRENS = 0.85;  // plaatselijke maatstaf nooit lager dan dit deel van die van al het haar
+const DIEP_DEKKEND = 65;       // diep binnenin: vanaf deze afstand tot het doek altijd dekkend
 const SCHADUW_MAX = 45, SCHADUW_TINT = 0.9993; // schaduw op het doek: afstand < 45 en dezelfde kleurtint
 async function maakMasker(beeld, pixels, gezichten, g) {
   const W = beeld.width, H = beeld.height;
@@ -232,6 +237,7 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   const haar = naarVolleMaat(vervaag(haarKaart, 5), W, H, g);
   // Ruim rond het haar: daar kunnen losse haartjes over kleding of huid vallen.
   const haarNabij = naarVolleMaat(vervaag(haarKaart, 14), W, H, g);
+  const kledingKaart = naarVolleMaat(vervaag(grijsCanvas(ruw.kleding, ruw.w, ruw.h), 3), W, H, g);
   const { w: mw, h: mh } = ruw;
   const verloop = achtergrondVerloop(ruw.klein, ruw.data, mw, mh)
     || kleurSchatting(ruw.klein, mw, mh, (i) => ruw.data[i] < 0.05, [12, 40, 120]);
@@ -244,8 +250,19 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   const afstandKlein = new Float32Array(mw * mh);
   for (let i = 0; i < mw * mh; i++)
     afstandKlein[i] = Math.hypot(ks[i * 4] - vs[i * 4], ks[i * 4 + 1] - vs[i * 4 + 1], ks[i * 4 + 2] - vs[i * 4 + 2]);
-  const dekkend = (i) => ruw.data[i] > 0.5 && afstandKlein[i] > DREMPEL_DEKKEND;
+  // Twee rondes: eerst het gemiddelde van alles wat dekkend lijkt; daarna alleen wat daar dicht bij
+  // zit of verder weg ligt. Zo telt een waas van veel dunne haartjes (op de verkleinde foto ook
+  // "donker-achtig") niet mee als dekkend haar; anders blijft daar een grijs waas staan.
+  const eersteRonde = gemiddeldeKaart(afstandKlein, mw, mh, (i) => ruw.data[i] > 0.5 && afstandKlein[i] > DREMPEL_DEKKEND, [3, 10, 30, 100])
+    .getContext("2d", { willReadFrequently: true }).getImageData(0, 0, mw, mh).data;
+  const dekkend = (i) => ruw.data[i] > 0.5 && afstandKlein[i] > Math.max(DREMPEL_DEKKEND, 0.85 * eersteRonde[i * 4] * 2);
   const dekking = naarVolleMaat(gemiddeldeKaart(afstandKlein, mw, mh, dekkend, [3, 10, 30, 100]), W, H, g);
+  // Maatstaf voor het haar van de hele foto (70e percentiel van zeker-haar-pixels). Waar in de buurt
+  // alleen dunne haartjes liggen, valt de plaatselijke schatting anders veel te laag uit.
+  const haarAfstanden = [];
+  for (let i = 0; i < mw * mh; i++) if (ruw.haar[i] > 0.8 && ruw.data[i] > 0.8) haarAfstanden.push(afstandKlein[i]);
+  haarAfstanden.sort((a, b) => a - b);
+  const haarMaat = haarAfstanden.length > 50 ? haarAfstanden[Math.floor(haarAfstanden.length * 0.7)] : 0;
   // Dichtheid: welk deel van de omgeving is dekkend haar/kleding? In een dichte massa (dreadlocks,
   // binnenkant van een haardos) is een lichtere vezel dekkend; waar het haar dun is (losse haartjes,
   // buitenrand) is een tussenkleur een half doorzichtig haartje.
@@ -277,10 +294,16 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     if (gezicht[i]) { alfa[i] = 255; continue; }
     const j = i * 4;
     if (diep[j] >= 245 && haarNabij[j] < 40) { alfa[i] = 255; continue; } // huid/kleding diep binnenin, niet bij haar
+    // Kleding/huid volgens het model, binnen de vorm van de persoon: geen gaten (witte stukjes in een
+    // patroon zijn stof, geen achtergrond).
+    if (zeker[j] >= 200 && kledingKaart[j] >= 170 && haar[j] < 60) { alfa[i] = 255; continue; }
     if (mogelijk[j] < 3) { alfa[i] = 0; continue; }
     const vr = pixels[j] - achter[j], vg = pixels[j + 1] - achter[j + 1], vb = pixels[j + 2] - achter[j + 2];
     const d = Math.hypot(vr, vg, vb);
     if (d < KLEUR_VAN) { alfa[i] = 0; continue; }       // ruis in de achtergrond
+    // Diep binnen de persoon (ook midden in een haardos): dekkend, behalve waar de achtergrond echt
+    // doorschijnt (gaten tussen dreadlocks/krullen). Zo worden grijze haren in zwart haar niet doorzichtig.
+    if (diep[j] >= 245 && d >= DIEP_DEKKEND) { alfa[i] = 255; continue; }
     // Schaduw op het studiodoek (bijv. van het haar): iets donkerder, maar dezelfde kleurtint als het
     // doek. Dat is achtergrond, geen persoon.
     if (d < SCHADUW_MAX) {
@@ -295,12 +318,11 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     // dekkend; losse haartjes buiten de massa zijn dun en half doorzichtig.
     // Binnen de vorm van de persoon is kleding/huid langs de rand dekkend zodra hij duidelijk anders
     // is (DEKKEND_KLEDING). Haar: DEKKEND waar het dun is, DEKKEND_DICHT in een dichte massa.
-    const binnen = Math.max(0, Math.min(1, (zeker[j] - 150) / 90));
-    const isHaar = Math.max(0, Math.min(1, (haar[j] - 30) / 90));
-    const kleding = binnen * (1 - isHaar);
+    const kleding = Math.max(0, Math.min(1, (kledingKaart[j] - 120) / 100)); // volgens het model kleding/huid
     const massa = Math.max(0, Math.min(1, (dichtheid[j] - 150) / 90)) * (1 - kleding);
     const factor = DEKKEND - (DEKKEND - DEKKEND_KLEDING) * kleding - (DEKKEND - DEKKEND_DICHT) * massa;
-    const vol = Math.max(KLEUR_TOT, factor * dekking[j] * 2);
+    const plaatselijk = Math.max(dekking[j] * 2, (1 - kleding) * HAAR_ONDERGRENS * haarMaat);
+    const vol = Math.max(KLEUR_TOT, factor * plaatselijk);
     const a = (d - KLEUR_VAN) / vol;
     alfa[i] = a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
   }
