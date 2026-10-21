@@ -366,6 +366,22 @@ async function maakMasker(beeld, pixels, gezichten, g) {
   }
   lokSom.getContext("2d").putImageData(lsId, 0, 0);
   const lokS = vervaag(lokSom, 6).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  // Kleur van een massieve lok HIER: gemiddelde afstand tot het doek van de pixels middenin een lok
+  // (± 6 px rondom alles haar), over ± 15 px. Bij licht haar is dat de maat voor "dekkend", niet de
+  // donkerste vezels of het haar van de hele foto. Is die maat te groot, dan worden randpixels te
+  // doorzichtig (donker/blauwig waas); te klein, dan blijft er doek in hangen (lichte, vage randjes).
+  // Losse krulletjes zonder massieve kern houden de gewone maat.
+  const kernSom = canvas(W, H), kernTel = canvas(W, H);
+  const ksId = kernSom.getContext("2d").createImageData(W, H), ktId = kernTel.getContext("2d").createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4, kern = vId.data[j] && binnenLok[j] >= 245;
+    ksId.data[j] = kern ? lsId.data[j] : 0; ktId.data[j] = kern ? 255 : 0;
+    ksId.data[j + 3] = ktId.data[j + 3] = 255;
+  }
+  kernSom.getContext("2d").putImageData(ksId, 0, 0);
+  kernTel.getContext("2d").putImageData(ktId, 0, 0);
+  const kernS = vervaag(kernSom, 15).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  const kernT = vervaag(kernTel, 15).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
   // Alleen bij een foto met licht haar: bij zwart haar ligt langs de rand een band halfbedekte pixels
   // die onderling op elkaar lijken; die moeten zacht blijven (anders een lichte rand).
   const lichtHaarFoto = 1 - Math.max(0, Math.min(1, (haarMediaan - LICHT_HAAR_FOTO[0]) / (LICHT_HAAR_FOTO[1] - LICHT_HAAR_FOTO[0])));
@@ -378,7 +394,7 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     if (zeker[j] >= 200 && kledingKaart[j] >= 170 && haar[j] < 60) { alfa[i] = 255; continue; }
     // steun van de modelvorm bij licht haar (zie haarGem); 0 bij donker haar en buiten de haardos
     const steun = Math.round(255 * tussen(LICHT_HAAR - haarGem[j] * 2, 0, 60) * tussen(haar[j], 60, 160)
-      * tussen(zeker[j], 120, 220) * tussen(diep[j], 100, 200) * (1 - tussen(openDoek[j], 60, 120)));
+      * tussen(zeker[j], 170, 240) * tussen(diep[j], 160, 235) * (1 - tussen(openDoek[j], 60, 120)));
     const kleur = kleurAlfa(j);
     let lok = 0;
     if (lichtHaarFoto > 0 && binnenLok[j] > 225 && kleur < 255) {
@@ -416,7 +432,11 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     const kleding = Math.max(0, Math.min(1, (kledingKaart[j] - 120) / 100)); // volgens het model kleding/huid
     const massa = Math.max(0, Math.min(1, (dichtheid[j] - 150) / 90)) * (1 - kleding);
     const factor = DEKKEND - (DEKKEND - DEKKEND_KLEDING) * kleding - (DEKKEND - DEKKEND_DICHT) * massa;
-    const plaatselijk = Math.max(dekking[j] * 2, (1 - kleding) * HAAR_ONDERGRENS * haarMaat);
+    let plaatselijk = Math.max(dekking[j] * 2, (1 - kleding) * HAAR_ONDERGRENS * haarMaat);
+    if (lichtHaarFoto > 0 && kernT[j] >= 10) {
+      const lokKleur = Math.max(KLEUR_TOT, (kernS[j] * 2 * 255) / kernT[j]);
+      plaatselijk += (Math.min(plaatselijk, lokKleur) - plaatselijk) * lichtHaarFoto * (1 - kleding) * tussen(kernT[j], 10, 60);
+    }
     const vol = Math.max(KLEUR_TOT, factor * plaatselijk);
     const a = (d - KLEUR_VAN) / vol;
     return a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
