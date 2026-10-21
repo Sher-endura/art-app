@@ -131,7 +131,7 @@ async function propPlaatsen(nieuwId = null) {
     if (!st.gezichten) st.gezichten = await alleGezichten(beeld);
     const d = await uitsnedeGegevens(beeld, st.gezichten);
     const stand = nieuwId
-      ? { ...(await beginStand(nieuwId, d, st.correctie)), ...(st.prop ? { midden: st.prop.midden, onder: st.prop.onder, spiegel: st.prop.spiegel, schaduw: st.prop.schaduw, helder: st.prop.helder } : {}) }
+      ? { ...(await beginStand(nieuwId, d, st.correctie)), ...(st.prop ? { midden: st.prop.midden, onder: st.prop.onder, spiegel: st.prop.spiegel, hoek: st.prop.hoek, schaduw: st.prop.schaduw, helder: st.prop.helder } : {}) }
       : st.prop;
     const nieuw = await plaatsProp({ d, achtergrond: await achtergrondVoor(keuze, beeld, false), correctie: st.correctie, stand });
     if (st.basis !== beeld) return;

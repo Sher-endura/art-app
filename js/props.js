@@ -91,7 +91,7 @@ function persoonMaat(d, correctie) {
 export async function beginStand(id, d, correctie) {
   const p = prop(id), bm = await laadProp(id), m = persoonMaat(d, correctie);
   const hoogte = (ZITHOOGTE * (m.onder - m.boven)) / (1 - p.zit);
-  return { id, midden: m.midden, onder: m.onder, hoogte, spiegel: false, schaduw: 45, helder: 0, verhouding: bm.width / bm.height, persoon: m.onder - m.boven };
+  return { id, midden: m.midden, onder: m.onder, hoogte, spiegel: false, hoek: 0, schaduw: 45, helder: 0, verhouding: bm.width / bm.height, persoon: m.onder - m.boven };
 }
 
 // ---------- tekenen ----------
@@ -108,6 +108,8 @@ function tekenProp(ctx, bm, s) {
   }
   ctx.save();
   if (s.helder) ctx.filter = `brightness(${1 + s.helder / 100})`;
+  // draaien rond het midden van de prop (om de zithoek aan te passen), daarna eventueel spiegelen
+  if (s.hoek) { const my = s.onder - h / 2; ctx.translate(s.midden, my); ctx.rotate((s.hoek * Math.PI) / 180); ctx.translate(-s.midden, -my); }
   if (s.spiegel) { ctx.translate(s.midden, 0); ctx.scale(-1, 1); ctx.translate(-s.midden, 0); }
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(bm, x, y, w, h);
@@ -164,6 +166,7 @@ function teken() {
   $("pp-grootte-waarde").textContent = Math.round((100 * s.hoogte) / s.persoon) + " %";
   $("pp-schaduw-waarde").textContent = s.schaduw + " %";
   $("pp-helder-waarde").textContent = (s.helder > 0 ? "+" : "") + s.helder;
+  $("pp-hoek-waarde").textContent = (s.hoek > 0 ? "+" : "") + (s.hoek || 0) + "°";
 }
 const plan = () => { if (!gepland) { gepland = true; requestAnimationFrame(teken); } };
 
@@ -186,6 +189,7 @@ export async function plaats({ d, achtergrond, correctie, stand }) {
   $("pp-grootte").value = Math.round((100 * stand.hoogte) / stand.persoon);
   $("pp-schaduw").value = stand.schaduw;
   $("pp-helder").value = stand.helder;
+  $("pp-hoek").value = stand.hoek || 0;
   $("propplaats").hidden = false;
   passend();
   teken();
@@ -233,6 +237,8 @@ export function startProps() {
   $("pp-grootte").addEventListener("input", (e) => { if (pp) { pp.stand.hoogte = (Number(e.target.value) / 100) * pp.stand.persoon; plan(); } });
   $("pp-schaduw").addEventListener("input", (e) => { if (pp) { pp.stand.schaduw = Number(e.target.value); plan(); } });
   $("pp-helder").addEventListener("input", (e) => { if (pp) { pp.stand.helder = Number(e.target.value); plan(); } });
+  $("pp-hoek").addEventListener("input", (e) => { if (pp) { pp.stand.hoek = Number(e.target.value); plan(); } });
+  $("pp-hoek-nul").addEventListener("click", () => { if (pp) { pp.stand.hoek = 0; $("pp-hoek").value = 0; plan(); } });
   $("pp-spiegel").addEventListener("click", () => { if (pp) { pp.stand.spiegel = !pp.stand.spiegel; plan(); } });
   $("pp-passend").addEventListener("click", () => { if (pp) { passend(); plan(); } });
   $("pp-annuleer").addEventListener("click", () => pp?.klaar(false));
