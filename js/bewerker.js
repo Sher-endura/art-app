@@ -1,6 +1,8 @@
 // Bewerkvenster: een foto bijwerken zoals in Photoshop.
 //   - Kleur en licht (hele foto): helderheid, contrast, verzadiging, warmte.
 //   - Penselen: haartjes/vlekjes weg, huid egaler, vervagen, vegen.
+//   - Lasso: een stuk omcirkelen, kopiëren of knippen, plakken, spiegelen, verschuiven en plaatsen
+//     (bijv. de helft van een shirt spiegelen zodat het recht zit).
 //   - Zoomen (scrollwiel), schuiven (rechtermuisknop of spatie + slepen), ongedaan maken / opnieuw,
 //     voor/na vergelijken.
 // Alles gebeurt op de computer zelf. Het origineel blijft bewaard; bewerkingen blijven per foto
@@ -130,6 +132,11 @@ let gereedschap = "herstel";
 let streek = null;       // lopende penseelstreek
 let toonOrigineel = false;
 let tekenGepland = false;
+// Lasso: selectie (punten in beeldpixels), zwevend stuk (geplakt, nog te verschuiven) en het klembord.
+let selectie = null;     // { punten: [[x, y], ...], klaar }
+let zwevend = null;      // { c: canvas met zachte rand, x, y, spiegel }
+let klembord = null;     // { c, x, y, masker }
+let lassoBezig = false, verplaats = null;
 
 function weergave() { return $("bw-canvas"); }
 
@@ -159,14 +166,41 @@ function teken() {
     const h = Math.min(c.height, Math.ceil((zicht.y + huidig.werk.height * zicht.s) * dpr)) - y;
     if (w > 0 && h > 0) { const id = ctx.getImageData(x, y, w, h); pasKleurToe(id.data, huidig.kleur); ctx.putImageData(id, x, y); }
   }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sx = (x) => zicht.x + x * zicht.s, sy = (y) => zicht.y + y * zicht.s;
+  if (zwevend && !toonOrigineel) {
+    ctx.save();
+    ctx.translate(sx(zwevend.x), sy(zwevend.y));
+    ctx.scale(zicht.s, zicht.s);
+    if (zwevend.spiegel) { ctx.translate(zwevend.c.width, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(zwevend.c, 0, 0);
+    ctx.restore();
+    ctx.setLineDash([6, 4]); ctx.lineWidth = 1.5; ctx.strokeStyle = "#ffd84d";
+    ctx.strokeRect(sx(zwevend.x), sy(zwevend.y), zwevend.c.width * zicht.s, zwevend.c.height * zicht.s);
+    ctx.setLineDash([]);
+  }
+  if (selectie && selectie.punten.length > 1) {
+    ctx.beginPath();
+    selectie.punten.forEach(([x, y], i) => (i ? ctx.lineTo(sx(x), sy(y)) : ctx.moveTo(sx(x), sy(y))));
+    if (selectie.klaar) ctx.closePath();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#000"; ctx.stroke();
+    ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5; ctx.strokeStyle = "#fff"; ctx.stroke(); ctx.setLineDash([]);
+  }
   knoppen();
 }
-function planTeken() { if (!tekenGepland) { tekenGepland = true; requestAnimationFrame(teken); } }
+function planTeken() { knoppen(); if (!tekenGepland) { tekenGepland = true; requestAnimationFrame(teken); } }
 
 function knoppen() {
   $("bw-ongedaan").disabled = !huidig?.stappen.length;
   $("bw-opnieuw").disabled = !huidig?.terug.length;
   for (const b of document.querySelectorAll(".bw-gereedschap")) b.classList.toggle("actief", b.dataset.g === gereedschap);
+  const heeftSelectie = !!selectie?.klaar;
+  $("bw-kopieer").disabled = !heeftSelectie;
+  $("bw-knip").disabled = !heeftSelectie;
+  $("bw-plak").disabled = !klembord;
+  $("bw-spiegel").disabled = !zwevend;
+  $("bw-plaats").disabled = !zwevend;
+  $("bw-selectie-weg").disabled = !selectie && !zwevend;
 }
 
 function naarBeeld(e) {
@@ -240,6 +274,165 @@ function eindStreek() {
   knoppen();
 }
 
+// ----- lasso -----
+function binnenZwevend(p) {
+  return zwevend && p.x >= zwevend.x && p.y >= zwevend.y && p.x <= zwevend.x + zwevend.c.width && p.y <= zwevend.y + zwevend.c.height;
+}
+function lassoNeer(e) {
+  const p = naarBeeld(e);
+  if (binnenZwevend(p)) { verplaats = { dx: p.x - zwevend.x, dy: p.y - zwevend.y }; return; }
+  if (zwevend) plaats();
+  selectie = { punten: [[p.x, p.y]], klaar: false };
+  lassoBezig = true;
+  planTeken();
+}
+function lassoBeweeg(e) {
+  const p = naarBeeld(e);
+  if (verplaats) { zwevend.x = Math.round(p.x - verplaats.dx); zwevend.y = Math.round(p.y - verplaats.dy); planTeken(); return; }
+  if (!lassoBezig) return;
+  const [lx, ly] = selectie.punten[selectie.punten.length - 1];
+  if (Math.hypot(p.x - lx, p.y - ly) * zicht.s > 3) { selectie.punten.push([p.x, p.y]); planTeken(); }
+}
+function lassoOp() {
+  if (verplaats) { verplaats = null; return; }
+  if (!lassoBezig) return;
+  lassoBezig = false;
+  if (selectie.punten.length < 3) selectie = null; else selectie.klaar = true;
+  planTeken();
+}
+
+// Zachte rand van een uitsnede (in beeldpixels): zo valt een geplakt stuk niet op.
+const zachteRand = () => Math.max(2, Math.round(huidig.werk.width / 1200));
+
+function selectieKader() {
+  const W = huidig.werk.width, H = huidig.werk.height, m = zachteRand() * 3;
+  const xs = selectie.punten.map((p) => p[0]), ys = selectie.punten.map((p) => p[1]);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs) - m)), y0 = Math.max(0, Math.floor(Math.min(...ys) - m));
+  const x1 = Math.min(W, Math.ceil(Math.max(...xs) + m)), y1 = Math.min(H, Math.ceil(Math.max(...ys) + m));
+  return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
+}
+function selectieMasker(k) {
+  const c = canvas(k.w, k.h), ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.filter = "blur(" + zachteRand() + "px)";
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  selectie.punten.forEach(([x, y], i) => (i ? ctx.lineTo(x - k.x, y - k.y) : ctx.moveTo(x - k.x, y - k.y)));
+  ctx.closePath();
+  ctx.fill();
+  return c;
+}
+function kopieer() {
+  if (!selectie?.klaar) return false;
+  const k = selectieKader(), m = selectieMasker(k);
+  const c = canvas(k.w, k.h), ctx = c.getContext("2d");
+  ctx.drawImage(huidig.werk, -k.x, -k.y);
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.drawImage(m, 0, 0);
+  klembord = { c, x: k.x, y: k.y, masker: m };
+  knoppen();
+  return true;
+}
+// Knippen: kopiëren en het gat opvullen met de omgeving (vloeiend aangevuld van buiten naar binnen).
+function knip() {
+  if (!kopieer()) return;
+  const k = selectieKader(), m = klembord.masker;
+  const pad = Math.round(Math.max(k.w, k.h) * 0.15) + 8, W = huidig.werk.width, H = huidig.werk.height;
+  const g = { x: Math.max(0, k.x - pad), y: Math.max(0, k.y - pad) };
+  g.w = Math.min(W, k.x + k.w + pad) - g.x; g.h = Math.min(H, k.y + k.h + pad) - g.y;
+  streek = { tegels: new Map() };
+  bewaarTegels(g.x, g.y, g.x + g.w, g.y + g.h);
+  const id = huidig.wctx.getImageData(g.x, g.y, g.w, g.h), d = id.data;
+  const mc = canvas(g.w, g.h);
+  mc.getContext("2d").drawImage(m, k.x - g.x, k.y - g.y);
+  const md = mc.getContext("2d").getImageData(0, 0, g.w, g.h).data;
+  const gat = new Float32Array(g.w * g.h);
+  for (let i = 0; i < gat.length; i++) gat[i] = md[i * 4 + 3] / 255;
+  const vul = vulAan(d, gat, g.w, g.h);
+  for (let i = 0; i < gat.length; i++) {
+    const a = gat[i];
+    if (!a) continue;
+    for (let c = 0; c < 3; c++) d[i * 4 + c] = d[i * 4 + c] * (1 - a) + vul[i * 3 + c] * a;
+  }
+  huidig.wctx.putImageData(id, g.x, g.y);
+  eindStreek();
+  selectie = null;
+  planTeken();
+}
+// "Push-pull": steeds grover gemiddelde van de bekende pixels, dan weer terug naar fijn; onbekende
+// pixels (het gat) krijgen zo een vloeiende kleur uit de omgeving.
+function vulAan(d, gat, w, h) {
+  let niveau = { w, h, kl: new Float32Array(w * h * 3), gw: new Float32Array(w * h) };
+  for (let i = 0; i < w * h; i++) {
+    const b = 1 - gat[i];
+    niveau.gw[i] = b;
+    for (let c = 0; c < 3; c++) niveau.kl[i * 3 + c] = d[i * 4 + c] * b;
+  }
+  const niveaus = [niveau];
+  while (niveau.w > 1 || niveau.h > 1) {
+    const nw = Math.ceil(niveau.w / 2), nh = Math.ceil(niveau.h / 2);
+    const kl = new Float32Array(nw * nh * 3), gw = new Float32Array(nw * nh);
+    for (let y = 0; y < niveau.h; y++) for (let x = 0; x < niveau.w; x++) {
+      const i = y * niveau.w + x, j = (y >> 1) * nw + (x >> 1);
+      gw[j] += niveau.gw[i];
+      for (let c = 0; c < 3; c++) kl[j * 3 + c] += niveau.kl[i * 3 + c];
+    }
+    // kl blijft "kleur × gewicht"; gewicht begrensd op 1
+    for (let j = 0; j < nw * nh; j++) {
+      const n = gw[j];
+      if (n > 1) { for (let c = 0; c < 3; c++) kl[j * 3 + c] /= n; gw[j] = 1; }
+    }
+    niveau = { w: nw, h: nh, kl, gw };
+    niveaus.push(niveau);
+  }
+  // terug naar fijn; het grovere niveau bilineair bemonsteren, anders ontstaan blokken
+  for (let n = niveaus.length - 2; n >= 0; n--) {
+    const f = niveaus[n], g = niveaus[n + 1];
+    for (let j = 0; j < g.w * g.h; j++) {
+      const n2 = g.gw[j];
+      if (n2 > 0 && n2 !== 1) for (let c = 0; c < 3; c++) g.kl[j * 3 + c] /= n2;
+    }
+    for (let y = 0; y < f.h; y++) {
+      const gy = Math.min(g.h - 1, Math.max(0, (y + 0.5) / 2 - 0.5)), y0 = Math.floor(gy), y1 = Math.min(g.h - 1, y0 + 1), ty = gy - y0;
+      for (let x = 0; x < f.w; x++) {
+        const i = y * f.w + x, b = f.gw[i];
+        if (b >= 1) { f.gw[i] = 1; continue; }
+        const gx = Math.min(g.w - 1, Math.max(0, (x + 0.5) / 2 - 0.5)), x0 = Math.floor(gx), x1 = Math.min(g.w - 1, x0 + 1), tx = gx - x0;
+        const a = y0 * g.w + x0, bb = y0 * g.w + x1, cc = y1 * g.w + x0, dd = y1 * g.w + x1;
+        for (let c = 0; c < 3; c++) {
+          const grof = (g.kl[a * 3 + c] * (1 - tx) + g.kl[bb * 3 + c] * tx) * (1 - ty) + (g.kl[cc * 3 + c] * (1 - tx) + g.kl[dd * 3 + c] * tx) * ty;
+          f.kl[i * 3 + c] += grof * (1 - b);
+        }
+        f.gw[i] = 1;
+      }
+    }
+  }
+  return niveaus[0].kl;
+}
+function plak() {
+  if (!klembord) return;
+  if (zwevend) plaats();
+  zwevend = { c: klembord.c, x: klembord.x, y: klembord.y, spiegel: false };
+  selectie = null;
+  gereedschap = "lasso";
+  planTeken();
+}
+function spiegel() { if (zwevend) { zwevend.spiegel = !zwevend.spiegel; planTeken(); } }
+function plaats() {
+  if (!zwevend) return;
+  streek = { tegels: new Map() };
+  bewaarTegels(zwevend.x, zwevend.y, zwevend.x + zwevend.c.width, zwevend.y + zwevend.c.height);
+  const ctx = huidig.wctx;
+  ctx.save();
+  ctx.translate(zwevend.x, zwevend.y);
+  if (zwevend.spiegel) { ctx.translate(zwevend.c.width, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(zwevend.c, 0, 0);
+  ctx.restore();
+  eindStreek();
+  zwevend = null;
+  planTeken();
+}
+function selectieWeg() { selectie = null; zwevend = null; planTeken(); }
+
 // ----- ongedaan maken / opnieuw -----
 function wissel(stap) {
   if (stap.soort === "streek") {
@@ -272,6 +465,7 @@ function zetSchuifjes() {
 export function open(bron, { pasfoto = false, titel = "Foto bewerken" } = {}) {
   if (!bewerkingen.has(bron)) bewerkingen.set(bron, new Bewerking(bron));
   huidig = bewerkingen.get(bron);
+  selectie = null; zwevend = null; lassoBezig = false; verplaats = null;
   const bewaard = { kleur: { ...huidig.kleur }, aantal: huidig.stappen.length };
   $("bw-titel").textContent = titel;
   $("bw-waarschuwing").hidden = !pasfoto;
@@ -281,6 +475,8 @@ export function open(bron, { pasfoto = false, titel = "Foto bewerken" } = {}) {
   teken();
   return new Promise((ok) => {
     klaar = async (bevestigd) => {
+      if (bevestigd && zwevend) plaats();   // een nog zwevend stuk eerst vastzetten
+      selectie = null; zwevend = null;
       $("bewerker").hidden = true;
       if (!bevestigd) {
         // Annuleren: wijzigingen van deze sessie terugdraaien.
@@ -305,6 +501,7 @@ export function start() {
     if (!huidig) return;
     try { c.setPointerCapture(e.pointerId); } catch { /* niet elke invoer ondersteunt dit */ }
     if (e.button === 2 || e.button === 1 || spatie) { schuif = { x: e.clientX, y: e.clientY }; return; }
+    if (gereedschap === "lasso") { lassoNeer(e); return; }
     beginStreek(e);
   });
   c.addEventListener("pointermove", (e) => {
@@ -313,11 +510,13 @@ export function start() {
     const vr = $("bw-vak").getBoundingClientRect();
     cirkel.style.width = cirkel.style.height = r * 2 + "px";
     cirkel.style.left = e.clientX - vr.left - r + "px"; cirkel.style.top = e.clientY - vr.top - r + "px";
-    cirkel.hidden = false;
+    cirkel.hidden = gereedschap === "lasso";
+    c.style.cursor = gereedschap !== "lasso" ? "none" : binnenZwevend(naarBeeld(e)) ? "move" : "crosshair";
     if (schuif) { zicht.x += e.clientX - schuif.x; zicht.y += e.clientY - schuif.y; schuif = { x: e.clientX, y: e.clientY }; planTeken(); return; }
+    if (gereedschap === "lasso") { lassoBeweeg(e); return; }
     if (streek) verlengStreek(e);
   });
-  c.addEventListener("pointerup", () => { schuif = null; eindStreek(); });
+  c.addEventListener("pointerup", () => { schuif = null; if (gereedschap === "lasso") lassoOp(); else eindStreek(); });
   c.addEventListener("pointerleave", () => { $("bw-cirkel").hidden = true; });
   c.addEventListener("wheel", (e) => {
     if (!huidig) return;
@@ -331,6 +530,11 @@ export function start() {
   document.addEventListener("keydown", (e) => {
     if (!huidig || $("bewerker").hidden) return;
     if (e.key === " ") { spatie = true; e.preventDefault(); }
+    if (e.ctrlKey && e.key.toLowerCase() === "c") { e.preventDefault(); kopieer(); }
+    if (e.ctrlKey && e.key.toLowerCase() === "x") { e.preventDefault(); knip(); }
+    if (e.ctrlKey && e.key.toLowerCase() === "v") { e.preventDefault(); plak(); }
+    if (e.key === "Enter" && zwevend) { e.preventDefault(); plaats(); }
+    if (e.key === "Escape" && (zwevend || selectie)) { e.preventDefault(); selectieWeg(); }
     if (e.ctrlKey && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? opnieuw() : ongedaan(); }
     if (e.ctrlKey && e.key.toLowerCase() === "y") { e.preventDefault(); opnieuw(); }
     if (e.key === "[") { $("bw-grootte").value = Math.max(4, Number($("bw-grootte").value) - 4); }
@@ -361,6 +565,12 @@ export function start() {
   const zet = (v) => { toonOrigineel = v; planTeken(); };
   voorNa.addEventListener("pointerdown", () => zet(true));
   for (const ev of ["pointerup", "pointerleave"]) voorNa.addEventListener(ev, () => zet(false));
+  $("bw-kopieer").addEventListener("click", kopieer);
+  $("bw-knip").addEventListener("click", knip);
+  $("bw-plak").addEventListener("click", plak);
+  $("bw-spiegel").addEventListener("click", spiegel);
+  $("bw-plaats").addEventListener("click", plaats);
+  $("bw-selectie-weg").addEventListener("click", selectieWeg);
   $("bw-annuleer").addEventListener("click", () => klaar?.(false));
   $("bw-klaar").addEventListener("click", () => klaar?.(true));
 }
