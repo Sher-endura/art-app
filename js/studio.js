@@ -5,6 +5,7 @@ import { vervangAchtergrond } from "./uitknippen.js";
 import { kiesAchtergrond, slimBewerken } from "./bibliotheek.js";
 import * as bib from "./achtergronden.js";
 import { open as openBewerker, heeftBewerking } from "./bewerker.js";
+import { open as openUitsnede } from "./uitsnede.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,6 +17,7 @@ const st = {
   gezichten: null,   // punten per gezicht (null = nog niet gezocht)
   keuze: null,       // gekozen achtergrond { soort, id/kleur, naam }
   gezichtGelijk: true,
+  correctie: null,   // bijgewerkte uitsnede (venster "Uitsnede bijwerken"), per pixel −100..100
 };
 
 function status(id, tekst, soort = "") {
@@ -41,6 +43,7 @@ function knoppen() {
   $("studio-vervang").disabled = !heeft;
   $("studio-bewerk").disabled = !heeft;
   $("studio-origineel").hidden = !heeft || !st.keuze;
+  $("studio-uitsnede").hidden = !heeft || !st.keuze;
   const geblokkeerd = heeft && !st.gezichtGelijk;
   $("studio-opslaan").disabled = !heeft || geblokkeerd;
   $("studio-blokkade").hidden = !geblokkeerd;
@@ -50,7 +53,7 @@ function knoppen() {
 export async function laadStudiofoto(bestand) {
   try {
     const beeld = await createImageBitmap(bestand, { imageOrientation: "from-image" });
-    Object.assign(st, { naam: bestand.name, origineel: beeld, basis: beeld, beeld, gezichten: null, keuze: null, gezichtGelijk: true });
+    Object.assign(st, { naam: bestand.name, origineel: beeld, basis: beeld, beeld, gezichten: null, keuze: null, gezichtGelijk: true, correctie: null });
     status("studio-bewerkstatus", "Kleur en licht, haartjes en vlekjes weg, huid egaler, vervagen, vegen.");
     status("studio-status", `Geladen: ${bestand.name} (${beeld.width} × ${beeld.height} px)`, "goed");
     status("studio-achtergrondstatus", "Het gezicht blijft altijd precies zoals op de opname.");
@@ -72,20 +75,32 @@ async function zetAchtergrond(keuze) {
   try {
     if (!st.gezichten) st.gezichten = await alleGezichten(beeld);
     const achter = keuze.soort === "kleur" ? keuze.kleur : await bib.laadBeeld(keuze.id);
-    const res = await vervangAchtergrond(beeld, st.gezichten, achter);
+    const res = await vervangAchtergrond(beeld, st.gezichten, achter, null, st.correctie);
     if (st.basis !== beeld) return; // intussen een andere foto geladen of opnieuw bewerkt
     st.beeld = res.beeld;
     st.keuze = keuze;
     const n = st.gezichten.length;
     st.gezichtGelijk = n === 0 || res.gezichtGelijk;
     if (n === 0) status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}. Let op: geen gezicht herkend — controleer zelf of het gezicht goed is.`, "let");
-    else if (res.gezichtGelijk) status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}. ✓ ${n === 1 ? "Gezicht" : `Alle ${n} gezichten`} onveranderd (pixel voor pixel gecontroleerd).`, "goed");
+    else if (res.gezichtGelijk) status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}${st.correctie ? " (uitsnede bijgewerkt)" : ""}. ✓ ${n === 1 ? "Gezicht" : `Alle ${n} gezichten`} onveranderd (pixel voor pixel gecontroleerd).`, "goed");
     else status("studio-achtergrondstatus", `Achtergrond: ${keuze.naam}. ✗ Een gezicht wijkt af (${res.afwijkend} pixels).`, "fout");
   } catch {
     status("studio-achtergrondstatus", "Achtergrond vervangen lukte niet.", "fout");
   }
   teken();
   knoppen();
+}
+
+// Uitsnede bijwerken met de penselen "Hoort erbij" en "Weg"; daarna opnieuw samenstellen en controleren.
+async function uitsnede() {
+  if (!st.keuze || !st.basis) return;
+  const beeld = st.basis, keuze = st.keuze;
+  status("studio-achtergrondstatus", "Uitsnede openen…");
+  const achter = keuze.soort === "kleur" ? keuze.kleur : await bib.laadBeeld(keuze.id);
+  const correctie = await openUitsnede({ beeld, gezichten: st.gezichten || [], achtergrond: achter, correctie: st.correctie });
+  if (st.basis !== beeld) return;
+  if (correctie) st.correctie = correctie.some((v) => v) ? correctie : null;
+  await zetAchtergrond(keuze);
 }
 
 function origineel() {
@@ -150,6 +165,7 @@ export function startStudio() {
   $("studio-vervang").addEventListener("click", vervang);
   $("studio-bewerk").addEventListener("click", bewerk);
   $("studio-origineel").addEventListener("click", origineel);
+  $("studio-uitsnede").addEventListener("click", uitsnede);
   $("studio-opslaan").addEventListener("click", opslaan);
   $("studio-slim").addEventListener("click", slim);
   knoppen();

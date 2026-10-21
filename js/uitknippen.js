@@ -297,6 +297,46 @@ function rijSchatting(pixels, bekend, W, H) {
   return { achter: uit, ruis };
 }
 
+// Rand zuiveren (gewone ruimte, niet bij haar en gezicht). De camera verscherpt randen: langs een
+// donkere broek ligt in de opname een dun LICHT lijntje (lichter dan de muur, of grijs). Dat lijkt
+// op persoon (ver van de muur af) maar is een mengsel van muur en stof. Per randpixel: de kleur van de
+// stof (F, gemiddelde van de zekere pixels een paar pixels verder naar binnen) en van de oude
+// achtergrond (B). Waar ligt de pixel op de lijn B → F? Dat is hoeveel persoon hij is. Alleen omlaag
+// bijsturen (nooit meer persoon maken dan de kleur al zei).
+function randZuiveren(pixels, alfa, achter, gezicht, haar, W, H) {
+  const binair = (test) => {
+    const c = canvas(W, H), id = c.getContext("2d").createImageData(W, H);
+    for (let i = 0; i < W * H; i++) { const v = test(i) ? 255 : 0; id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255; }
+    c.getContext("2d").putImageData(id, 0, 0);
+    return c;
+  };
+  // zeker stof: dekkend en minstens ± 4 px van de rand
+  const nietVol = vervaag(binair((i) => alfa[i] < 255), 3).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  const zekerStof = (i) => alfa[i] === 255 && nietVol[i * 4] === 0;
+  const p = canvas(W, H), pd = p.getContext("2d").createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4, z = zekerStof(i);
+    pd.data[j] = z ? pixels[j] : 0; pd.data[j + 1] = z ? pixels[j + 1] : 0; pd.data[j + 2] = z ? pixels[j + 2] : 0; pd.data[j + 3] = 255;
+  }
+  p.getContext("2d").putImageData(pd, 0, 0);
+  const som = vervaag(p, 6).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  const tel = vervaag(binair(zekerStof), 6).getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  for (let i = 0; i < W * H; i++) {
+    if (!alfa[i] || gezicht[i] || zekerStof(i) || nietVol[i * 4] === 0) continue;
+    const j = i * 4;
+    // niet in haar (losse haartjes zouden verdwijnen); het model ziet zwarte vlakken in een print
+    // soms als haar, dus alleen waar het model er vrij zeker van is
+    if (haar[j] >= 120 || tel[j] < 12) continue;
+    const F = [0, 1, 2].map((c) => (som[j + c] * 255) / tel[j]);
+    const fb = [0, 1, 2].map((c) => F[c] - achter[j + c]);
+    const ff = fb[0] * fb[0] + fb[1] * fb[1] + fb[2] * fb[2];
+    if (ff < 50 * 50) continue;   // stof en muur lijken te veel op elkaar: dan zegt dit niets
+    const a = ((pixels[j] - achter[j]) * fb[0] + (pixels[j + 1] - achter[j + 1]) * fb[1] + (pixels[j + 2] - achter[j + 2]) * fb[2]) / ff;
+    const nieuw = Math.round(Math.max(0, Math.min(1, (a - 0.08) / 0.84)) * 255);
+    if (nieuw < alfa[i]) alfa[i] = nieuw;
+  }
+}
+
 // Masker (0..255) op volle grootte.
 //  - Het model geeft de grove vorm: binnenin = zeker persoon, ver erbuiten = zeker achtergrond.
 //  - In de rand (en ruim daarbuiten, voor losse haartjes) bepaalt het kleurverschil met de oude
@@ -543,6 +583,17 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     // In een gewone ruimte, waar het model achtergrond ziet: ook een paar rijen hoger en lager
     // vergelijken (de randen van de plint lopen nooit precies recht, anders blijven daar dunne
     // streepjes staan). NIET waar het model een persoon ziet: in een voet of sandaal gaf dat strepen.
+    // Op de overgang muur → plint → vloer is een pixel een mengsel van de rij erboven en eronder:
+    // vergelijk dan met de lijn tussen die twee (niet in het zekere midden van de persoon).
+    if (ruis && diep[j] < 245 && j - 4 * W * 4 >= 0 && j + 4 * W * 4 < achter.length) {
+      const ja = j - 4 * W * 4, jb = j + 4 * W * 4;
+      const v = [achter[jb] - achter[ja], achter[jb + 1] - achter[ja + 1], achter[jb + 2] - achter[ja + 2]];
+      const vv = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+      if (vv > 60 * 60) {
+        const s = Math.max(0, Math.min(1, ((px[j] - achter[ja]) * v[0] + (px[j + 1] - achter[ja + 1]) * v[1] + (px[j + 2] - achter[ja + 2]) * v[2]) / vv));
+        d = Math.min(d, Math.hypot(px[j] - achter[ja] - s * v[0], px[j + 1] - achter[ja + 1] - s * v[1], px[j + 2] - achter[ja + 2] - s * v[2]));
+      }
+    }
     const modelAchter = ruis && zeker[j] < 60;
     if (modelAchter) for (const dy of [-6, -4, -2, 2, 4, 6]) {
       const jj = j + dy * W * 4;
@@ -596,11 +647,12 @@ async function maakMasker(beeld, pixels, gezichten, g) {
     const a = (d - kleurVan) / vol;
     return a <= 0.04 ? 0 : a >= 0.96 ? 255 : Math.round(a * 255);
   }
+  if (ruis) randZuiveren(pixels, alfa, achter, gezicht, haar, W, H);
   return { alfa, gezicht, achter };
 }
 
 // Nieuwe achtergrond tekenen op volle maat: een effen kleur ("#rrggbb") of een afbeelding (vullend).
-function achtergrondPixels(W, H, achtergrond) {
+export function achtergrondPixels(W, H, achtergrond) {
   const c = canvas(W, H);
   const ctx = c.getContext("2d", { willReadFrequently: true });
   if (typeof achtergrond === "string") {
@@ -618,18 +670,25 @@ function achtergrondPixels(W, H, achtergrond) {
 // Bewaar het masker per opname, zodat een andere achtergrond kiezen snel gaat.
 const maskerCache = new WeakMap();
 
-// beeld: de originele opname (ImageBitmap); gezichten: lijst met per gezicht de punten uit de
-// gezichtsherkenning (mag leeg zijn); achtergrond: "#rrggbb" of een ImageBitmap; gebied (optioneel):
-// { x, y, w, h } in beeldpixels waar de persoon staat.
-// Geeft { beeld, gezichtGelijk, gezichtPixels, afwijkend }.
-export async function vervangAchtergrond(beeld, gezichten, achtergrond, gebied = null) {
-  const W = beeld.width, H = beeld.height;
-  const bron = canvas(W, H);
-  const bctx = bron.getContext("2d", { willReadFrequently: true });
-  bctx.drawImage(beeld, 0, 0);
-  const org = bctx.getImageData(0, 0, W, H);
-  const o = org.data;
+// Correctie van de uitsnede door de medewerker (venster "Uitsnede bijwerken"): per pixel een getal van
+// −100 tot 100. Positief = "hoort erbij" (meer persoon), negatief = "weg" (meer achtergrond); de
+// grootte is hoe sterk (zachte penseelrand). Binnen de gezichtsomtrek kan "weg" niets doen: het
+// gezicht blijft altijd volledig zichtbaar en wordt na afloop pixel voor pixel gecontroleerd.
+export function gecorrigeerd(al, c, inGezicht) {
+  if (c > 0) return Math.round(al + ((255 - al) * c) / 100);
+  if (c < 0 && !inGezicht) return Math.round((al * (100 + c)) / 100);
+  return al;
+}
 
+function lees(beeld) {
+  const W = beeld.width, H = beeld.height;
+  const bctx = canvas(W, H).getContext("2d", { willReadFrequently: true });
+  bctx.drawImage(beeld, 0, 0);
+  return bctx.getImageData(0, 0, W, H).data;
+}
+
+async function zorgVoorMasker(beeld, o, gezichten, gebied) {
+  const W = beeld.width, H = beeld.height;
   const g = gebied ? {
     x: Math.max(0, Math.floor(gebied.x)), y: Math.max(0, Math.floor(gebied.y)),
     w: 0, h: 0,
@@ -644,25 +703,52 @@ export async function vervangAchtergrond(beeld, gezichten, achtergrond, gebied =
     m = { sleutel, ...(await maakMasker(beeld, o, gezichten || [], g)) };
     maskerCache.set(beeld, m);
   }
-  const { alfa, gezicht, achter } = m;
-  const a = achtergrondPixels(W, H, achtergrond);
+  return m;
+}
 
-  const uit = new ImageData(W, H);
-  const u = uit.data;
-  for (let i = 0; i < W * H; i++) {
-    const al = alfa[i], j = i * 4;
-    if (al === 255) { u[j] = o[j]; u[j + 1] = o[j + 1]; u[j + 2] = o[j + 2]; }
-    else if (al === 0) { u[j] = a[j]; u[j + 1] = a[j + 1]; u[j + 2] = a[j + 2]; }
+// Wat het venster "Uitsnede bijwerken" nodig heeft: de opname, het masker (alfa 0..255), de
+// gezichtsomtrek en de geschatte oude achtergrond, allemaal op volle grootte.
+export async function uitsnedeGegevens(beeld, gezichten, gebied = null) {
+  const o = lees(beeld);
+  const { alfa, gezicht, achter } = await zorgVoorMasker(beeld, o, gezichten, gebied);
+  return { W: beeld.width, H: beeld.height, opname: o, alfa, gezicht, achter };
+}
+
+// Samenstellen van het rechthoekje [x0, x1) × [y0, y1): opname + nieuwe achtergrond a (volle maat) volgens
+// het masker en de correctie. Schrijft in u (breedte uw, linksboven = x0, y0 als uw de breedte van het
+// rechthoekje is, of het hele beeld als uw === W). Eén formule voor ART en het venster "Uitsnede bijwerken".
+export function stelSamen(d, a, correctie, x0, y0, x1, y1, u, uw) {
+  const { W, opname: o, alfa, gezicht, achter } = d;
+  const heel = uw === W && x0 === 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = y * W + x, j = i * 4, k = heel ? j : ((y - y0) * uw + (x - x0)) * 4;
+    const al = correctie && correctie[i] ? gecorrigeerd(alfa[i], correctie[i], gezicht[i]) : alfa[i];
+    if (al === 255) { u[k] = o[j]; u[k + 1] = o[j + 1]; u[k + 2] = o[j + 2]; }
+    else if (al === 0) { u[k] = a[j]; u[k + 1] = a[j + 1]; u[k + 2] = a[j + 2]; }
     else {
       // Rand (alleen haar/kleding, nooit binnen de gezichtsomtrek): eerst de oude achtergrondkleur
       // uit het randpixel halen, anders blijft er een lichte rand ("halo") rond het hoofd.
       // De oude achtergrond precies vervangen door de nieuwe, alleen voor het deel dat niet bedekt is:
       // nieuw = opname + (1 − dekking) × (nieuwe − oude achtergrond). Geen lichte randjes, geen vlekken.
       const f = al / 255;
-      for (let c = 0; c < 3; c++) u[j + c] = o[j + c] + (1 - f) * (a[j + c] - achter[j + c]) + 0.5;
+      for (let c = 0; c < 3; c++) u[k + c] = o[j + c] + (1 - f) * (a[j + c] - achter[j + c]) + 0.5;
     }
-    u[j + 3] = 255;
+    u[k + 3] = 255;
   }
+}
+
+// beeld: de originele opname (ImageBitmap); gezichten: lijst met per gezicht de punten uit de
+// gezichtsherkenning (mag leeg zijn); achtergrond: "#rrggbb" of een ImageBitmap; gebied (optioneel):
+// { x, y, w, h } in beeldpixels waar de persoon staat; correctie (optioneel): zie gecorrigeerd().
+// Geeft { beeld, gezichtGelijk, gezichtPixels, afwijkend }.
+export async function vervangAchtergrond(beeld, gezichten, achtergrond, gebied = null, correctie = null) {
+  const W = beeld.width, H = beeld.height;
+  const o = lees(beeld);
+  const { alfa, gezicht, achter } = await zorgVoorMasker(beeld, o, gezichten, gebied);
+  const a = achtergrondPixels(W, H, achtergrond);
+
+  const uit = new ImageData(W, H);
+  stelSamen({ W, opname: o, alfa, gezicht, achter }, a, correctie, 0, 0, W, H, uit.data, W);
 
   const uc = canvas(W, H);
   uc.getContext("2d").putImageData(uit, 0, 0);

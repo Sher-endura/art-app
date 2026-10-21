@@ -11,6 +11,7 @@ import { kiesAchtergrond, startBibliotheek } from "./bibliotheek.js";
 import { startStudio, laadStudiofoto } from "./studio.js";
 import * as bib from "./achtergronden.js";
 import { open as openBewerker, start as startBewerker, heeftBewerking } from "./bewerker.js";
+import { open as openUitsnede, start as startUitsnede } from "./uitsnede.js";
 
 const $ = (id) => document.getElementById(id);
 const komma = (n, d = 1) => n.toFixed(d).replace(".", ",");
@@ -19,7 +20,7 @@ const editor = new Editor($("canvas"), bijwerken);
 let fotonaam = "";
 // Pasfoto: de originele opname en de vervangen achtergrond (als die er is).
 // basis = origineel met de bewerkingen uit het bewerkvenster (of het origineel zelf).
-const pas = { origineel: null, basis: null, achtergrond: null, gezichtGelijk: true };
+const pas = { origineel: null, basis: null, achtergrond: null, gezichtGelijk: true, correctie: null };
 
 // ---------- pagina's ----------
 let pagina = "pasfoto";
@@ -79,7 +80,7 @@ async function laadBestand(bestand) {
   try {
     const beeld = await createImageBitmap(bestand, { imageOrientation: "from-image" });
     fotonaam = bestand.name;
-    Object.assign(pas, { origineel: beeld, basis: beeld, achtergrond: null, gezichtGelijk: true });
+    Object.assign(pas, { origineel: beeld, basis: beeld, achtergrond: null, gezichtGelijk: true, correctie: null });
     $("pas-bewerkstatus").textContent = "Kleur en licht, haartjes en vlekjes weg, huid egaler, vervagen, vegen.";
     $("pas-bewerkstatus").className = "uitleg";
     $("pas-achtergrondstatus").textContent = "Het gezicht blijft altijd precies zoals op de opname.";
@@ -239,12 +240,12 @@ async function zetAchtergrond(keuze) {
     const achter = keuze.soort === "kleur" ? keuze.kleur : await bib.laadBeeld(keuze.id);
     // Het gezicht wordt vergeleken met de (eventueel bewerkte) foto: het uitknippen zelf mag het
     // gezicht nooit veranderen.
-    const res = await vervangAchtergrond(beeld, [editor.analyse.punten], achter, editor.kaderInBeeld());
+    const res = await vervangAchtergrond(beeld, [editor.analyse.punten], achter, editor.kaderInBeeld(), pas.correctie);
     if (pas.basis !== beeld) return;
     Object.assign(pas, { achtergrond: keuze, gezichtGelijk: res.gezichtGelijk });
     editor.vervangBeeld(res.beeld);
     st.textContent = res.gezichtGelijk
-      ? `Achtergrond: ${keuze.naam}.`
+      ? `Achtergrond: ${keuze.naam}${pas.correctie ? " (uitsnede bijgewerkt)" : ""}.`
       : `Achtergrond: ${keuze.naam}. ✗ Het gezicht wijkt af (${res.afwijkend} pixels).`;
     st.className = "uitleg " + (res.gezichtGelijk ? "goed" : "fout");
   } catch {
@@ -255,6 +256,16 @@ async function zetAchtergrond(keuze) {
 $("pas-vervang").addEventListener("click", async () => {
   const keuze = await kiesAchtergrond({ kleuren: true });
   if (keuze && pas.basis) zetAchtergrond(keuze);
+});
+$("pas-uitsnede").addEventListener("click", async () => {
+  if (!pas.achtergrond || !pas.basis || !editor.analyse) return;
+  const beeld = pas.basis, keuze = pas.achtergrond;
+  const achter = keuze.soort === "kleur" ? keuze.kleur : await bib.laadBeeld(keuze.id);
+  const correctie = await openUitsnede({ beeld, gezichten: [editor.analyse.punten], gebied: editor.kaderInBeeld(), achtergrond: achter, correctie: pas.correctie });
+  if (pas.basis !== beeld) return;
+  if (correctie) pas.correctie = correctie.some((v) => v) ? correctie : null;
+  await zetAchtergrond(keuze);
+  bijwerken();
 });
 $("pas-origineel").addEventListener("click", () => {
   Object.assign(pas, { achtergrond: null, gezichtGelijk: true });
@@ -285,6 +296,7 @@ function bijwerken() {
   for (const id of ["klikken", "kleiner", "groter", "pas-vervang", "pas-bewerk"]) $(id).disabled = !heeftFoto;
   for (const id of ["opslaan", "afdrukken"]) $(id).disabled = !heeftFoto || geblokkeerd;
   $("pas-origineel").hidden = !pas.achtergrond;
+  $("pas-uitsnede").hidden = !pas.achtergrond;
   $("blokkade").hidden = !geblokkeerd;
   $("blokkade").textContent = "Het gezicht wijkt af van de opname. Opslaan en afdrukken zijn geblokkeerd. Zet de originele achtergrond terug of probeer opnieuw.";
 
@@ -392,5 +404,6 @@ for (const r of document.querySelectorAll('input[name="dpi"]')) r.addEventListen
 vulDocumenten();
 startStudio();
 startBewerker();
+startUitsnede();
 startBibliotheek();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
